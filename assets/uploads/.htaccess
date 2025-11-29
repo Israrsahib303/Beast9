@@ -1,0 +1,14 @@
+# Disable PHP Execution in this folder
+<Files *.php>
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Allow only images
+<FilesMatch "\.(jpg|jpeg|png|gif|webp)$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>
+
+# Prevent directory listing
+Options -Indexes
