@@ -1099,3 +1099,6 @@ Cron finished at 2025-11-29 22:00:03
 [2025-11-29 19:00:03] --- SUBSCRIPTION EXPIRY CHECK STARTED ---
 [2025-11-30 00:00:03] No expired subscriptions found.
 [2025-11-30 00:00:03] --- FINISHED ---
+[2025-11-29 20:00:03] --- SUBSCRIPTION EXPIRY CHECK STARTED ---
+[2025-11-30 01:00:03] No expired subscriptions found.
+[2025-11-30 01:00:03] --- FINISHED ---
