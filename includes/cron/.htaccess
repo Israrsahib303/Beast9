@@ -1,0 +1,5 @@
+# Allow access to Cron Scripts
+<Files *.php>
+    Order Allow,Deny
+    Allow from all
+</Files>
