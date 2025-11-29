@@ -1,0 +1,17 @@
+# Lock includes folder
+<Files *.php>
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+# Allow access only to specific files if needed (usually none in includes)
+# But strictly deny config files
+<Files config.php>
+    Order Deny,Allow
+    Deny from all
+</Files>
+
+<Files db.php>
+    Order Deny,Allow
+    Deny from all
+</Files>
