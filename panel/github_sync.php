@@ -1,299 +1,266 @@
 <?php
 include '_header.php';
 
-$msg = '';
-$msg_type = '';
-
-// --- HELPER: GET FILE CONTENT ---
-function getFileContent($path) {
-    return file_get_contents($path);
-}
-
-// --- HELPER: UPLOAD SINGLE FILE TO GITHUB ---
-function uploadToGithub($localPath, $remotePath, $token, $repo, $branch) {
-    $url = "https://api.github.com/repos/$repo/contents/$remotePath";
-    $content = base64_encode(file_get_contents($localPath));
+// --- AJAX HANDLER ---
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['ajax_action'])) {
     
-    // 1. Check if file exists (Get SHA)
-    $ch = curl_init($url . "?ref=" . $branch);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Authorization: token $token",
-        "User-Agent: Beast8-Panel"
-    ]);
-    $response = curl_exec($ch);
-    curl_close($ch);
-    
-    $json = json_decode($response, true);
-    $sha = $json['sha'] ?? null;
-
-    // Skip if content hasn't changed (Optimization)
-    // (Checking size/content match is hard without downloading, so we just overwrite for now to be safe)
-
-    // 2. PUT Request
-    $data = [
-        'message' => "Sync: $remotePath",
-        'content' => $content,
-        'branch' => $branch
-    ];
-    if ($sha) $data['sha'] = $sha;
-
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Authorization: token $token",
-        "User-Agent: Beast8-Panel",
-        "Accept: application/vnd.github.v3+json"
-    ]);
-    
-    $result = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return ($httpCode == 200 || $httpCode == 201);
-}
-
-// --- HELPER: SQL GENERATOR ---
-function createSql($sqlPath) {
-    require_once __DIR__ . '/../includes/config.php';
-    $mysqli = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
-    if ($mysqli->connect_error) return false;
-
-    $tables = [];
-    $query = $mysqli->query('SHOW TABLES');
-    while($row = $query->fetch_row()) { $tables[] = $row[0]; }
-    
-    $content = "-- Beast8 Auto-Backup\n-- Date: " . date('Y-m-d H:i') . "\n\n";
-    foreach($tables as $table) {
-        $res = $mysqli->query('SELECT * FROM '.$table);
-        $row2 = $mysqli->query('SHOW CREATE TABLE '.$table)->fetch_row();
-        $content .= "\n\n".$row2[1].";\n\n";
-        while($row = $res->fetch_row()) {
-            $content .= "INSERT INTO $table VALUES(";
-            $esc = array_map([$mysqli, 'real_escape_string'], $row);
-            $content .= "'" . implode("','", $esc) . "');\n";
-        }
-    }
-    file_put_contents($sqlPath, $content);
-    return true;
-}
-
-// --- MAIN HANDLE ---
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['upload_github'])) {
-    
-    // 1. Unlimited Time & Memory (Zaroori hai files loop ke liye)
-    set_time_limit(0); 
+    // Increase Limits
+    set_time_limit(0);
     ini_set('memory_limit', '1024M');
-    ignore_user_abort(true); // User tab band kare tab bhi chalta rahe
+    ignore_user_abort(true);
+    header('Content-Type: application/json');
 
-    $token = trim($_POST['gh_token']);
-    $repo = trim($_POST['gh_repo']); 
-    $branch = trim($_POST['gh_branch']) ?: 'main';
-    $action = $_POST['action_type'];
+    // Load Settings
+    $token = $_POST['gh_token'];
+    $repo = $_POST['gh_repo'];
+    $branch = $_POST['gh_branch'];
+    $action = $_POST['ajax_action'];
 
-    // Save Settings
+    // Save Settings Update
     try {
         $db->prepare("REPLACE INTO settings (setting_key, setting_value) VALUES ('gh_token', ?)")->execute([$token]);
         $db->prepare("REPLACE INTO settings (setting_key, setting_value) VALUES ('gh_repo', ?)")->execute([$repo]);
         $db->prepare("REPLACE INTO settings (setting_key, setting_value) VALUES ('gh_branch', ?)")->execute([$branch]);
     } catch (Exception $e) {}
 
-    $successCount = 0;
-    $failCount = 0;
+    $response = ['status' => 'error', 'msg' => 'Unknown Error'];
 
-    // --- A. DIRECT FILES SYNC ---
-    if ($action == 'files') {
-        $rootPath = realpath(__DIR__ . '/../');
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($rootPath),
-            RecursiveIteratorIterator::LEAVES_ONLY
-        );
-
-        foreach ($iterator as $file) {
-            if (!$file->isDir()) {
-                $filePath = $file->getRealPath();
-                $relativePath = substr($filePath, strlen($rootPath) + 1);
-                // Fix slashes for Windows/Linux consistency
-                $relativePath = str_replace('\\', '/', $relativePath);
-
-                // Skip Useless Files
-                if (strpos($filePath, 'error_log') !== false) continue;
-                if (strpos($filePath, '.git') !== false) continue;
-                if (strpos($filePath, 'node_modules') !== false) continue;
-                if (strpos($filePath, 'vendor') !== false) continue; // Skip heavy vendors
-                if (strpos($filePath, 'backup_') !== false) continue;
-
-                // Upload
-                if (uploadToGithub($filePath, $relativePath, $token, $repo, $branch)) {
-                    $successCount++;
-                } else {
-                    $failCount++;
-                }
-            }
-        }
-        $msg = "Sync Complete! Uploaded: $successCount files. Failed: $failCount.";
-        $msg_type = ($successCount > 0) ? "success" : "danger";
-    }
-
-    // --- B. SQL BACKUP ---
-    elseif ($action == 'sql') {
-        $tempFile = __DIR__ . '/database.sql';
-        if (createSql($tempFile)) {
-            if (uploadToGithub($tempFile, 'database.sql', $token, $repo, $branch)) {
-                $msg = "Database pushed successfully!"; $msg_type = "success";
-            } else {
-                $msg = "GitHub Upload Failed."; $msg_type = "danger";
-            }
-            unlink($tempFile);
-        } else { $msg = "SQL Creation Failed."; $msg_type = "danger"; }
-    }
-
-    // --- C. TREE VIEW ---
-    elseif ($action == 'tree') {
-        require_once __DIR__ . '/generate_tree.php';
-        if (!function_exists('getDirectoryTree')) { function getDirectoryTree($d){return "";} }
-        $content = getDirectoryTree(realpath(__DIR__ . '/../'));
+    // --- HELPER FUNCTIONS ---
+    function uploadAPI($localPath, $remotePath, $token, $repo, $branch) {
+        $url = "https://api.github.com/repos/$repo/contents/$remotePath";
+        $content = base64_encode(file_get_contents($localPath));
         
-        $tempFile = __DIR__ . '/tree.txt';
-        file_put_contents($tempFile, $content);
+        // Get SHA
+        $ch = curl_init($url . "?ref=" . $branch);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: token $token", "User-Agent: Beast8"]);
+        $res = json_decode(curl_exec($ch), true);
+        curl_close($ch);
+        $sha = $res['sha'] ?? null;
 
-        if (uploadToGithub($tempFile, 'project_structure.txt', $token, $repo, $branch)) {
-            $msg = "Tree structure uploaded!"; $msg_type = "success";
-        } else {
-            $msg = "GitHub Upload Failed."; $msg_type = "danger";
-        }
-        unlink($tempFile);
+        // PUT
+        $data = ['message' => "Sync: $remotePath", 'content' => $content, 'branch' => $branch];
+        if ($sha) $data['sha'] = $sha;
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, ["Authorization: token $token", "User-Agent: Beast8", "Accept: application/vnd.github.v3+json"]);
+        $result = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        return ($code == 200 || $code == 201);
     }
+
+    // --- ACTIONS ---
+    if ($action == 'sync_files') {
+        $root = realpath(__DIR__ . '/../');
+        $iter = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root), RecursiveIteratorIterator::LEAVES_ONLY);
+        $count = 0;
+        
+        foreach ($iter as $file) {
+            if (!$file->isDir()) {
+                $path = $file->getRealPath();
+                $rel = substr($path, strlen($root) + 1);
+                $rel = str_replace('\\', '/', $rel);
+                
+                if (strpos($path, 'error_log') !== false || strpos($path, '.git') !== false || strpos($path, 'vendor') !== false) continue;
+
+                if (uploadAPI($path, $rel, $token, $repo, $branch)) $count++;
+            }
+        }
+        $response = ['status' => 'success', 'msg' => "$count Files Synced!"];
+    }
+
+    if ($action == 'sync_sql') {
+        // SQL Generation Logic
+        require_once __DIR__ . '/../includes/config.php';
+        $mysqli = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
+        $tables = [];
+        $q = $mysqli->query('SHOW TABLES');
+        while($r = $q->fetch_row()) $tables[] = $r[0];
+        
+        $sql = "-- Sync: " . date('Y-m-d H:i') . "\n\n";
+        foreach($tables as $t) {
+            $row2 = $mysqli->query('SHOW CREATE TABLE '.$t)->fetch_row();
+            $sql .= "\n\n".$row2[1].";\n\n";
+            $res = $mysqli->query('SELECT * FROM '.$t);
+            while($row = $res->fetch_row()) {
+                $sql .= "INSERT INTO $t VALUES('" . implode("','", array_map([$mysqli, 'real_escape_string'], $row)) . "');\n";
+            }
+        }
+        $tmp = __DIR__ . '/temp.sql';
+        file_put_contents($tmp, $sql);
+        
+        if (uploadAPI($tmp, 'database.sql', $token, $repo, $branch)) {
+            $response = ['status' => 'success', 'msg' => "Database Synced!"];
+        } else {
+            $response = ['status' => 'error', 'msg' => "GitHub Upload Failed"];
+        }
+        unlink($tmp);
+    }
+
+    if ($action == 'sync_tree') {
+        require_once __DIR__ . '/generate_tree.php';
+        $tree = getDirectoryTree(realpath(__DIR__ . '/../'));
+        $tmp = __DIR__ . '/tree.txt';
+        file_put_contents($tmp, $tree);
+        
+        if (uploadAPI($tmp, 'file_structure.txt', $token, $repo, $branch)) {
+            $response = ['status' => 'success', 'msg' => "Structure Synced!"];
+        } else {
+            $response = ['status' => 'error', 'msg' => "GitHub Upload Failed"];
+        }
+        unlink($tmp);
+    }
+
+    echo json_encode($response);
+    exit;
 }
 
-// Fetch Data
-$gh_settings = [];
+// Fetch Saved Data
+$gh = [];
 $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('gh_token', 'gh_repo', 'gh_branch')");
-while($row = $stmt->fetch()) { $gh_settings[$row['setting_key']] = $row['setting_value']; }
+while($r = $stmt->fetch()) { $gh[$r['setting_key']] = $r['setting_value']; }
 ?>
 
 <style>
-/* UI Styles */
-.gh-wrapper { max-width: 850px; margin: 2rem auto; }
-.gh-card { background: #fff; border-radius: 20px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
-.gh-head { background: #1e293b; color: #fff; padding: 2rem; text-align: center; }
-.gh-icon { font-size: 3rem; margin-bottom: 10px; }
-.gh-title { font-size: 1.8rem; font-weight: 800; margin: 0; }
+.gh-wrapper { max-width: 900px; margin: 2rem auto; }
+.gh-card { background: #fff; border-radius: 16px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); overflow: hidden; border: 1px solid #e2e8f0; }
+.gh-header { background: #24292f; padding: 1.5rem; color: white; display: flex; align-items: center; justify-content: space-between; }
+.gh-header h2 { margin: 0; font-size: 1.2rem; font-weight: 700; display: flex; align-items: center; gap: 10px; }
 
-.gh-body { padding: 2rem; }
-.form-group { margin-bottom: 1.5rem; }
-.form-label { font-weight: 700; color: #374151; display: block; margin-bottom: 6px; }
-.form-control { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 10px; outline: none; transition: 0.2s; }
-.form-control:focus { border-color: #6366f1; }
+.gh-config { padding: 1.5rem; border-bottom: 1px solid #f1f5f9; background: #f8fafc; }
+.config-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 15px; }
+.form-control { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; font-size: 0.9rem; }
 
-/* Options Grid */
-.opt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px; }
-.opt-label { cursor: pointer; position: relative; }
-.opt-label input { position: absolute; opacity: 0; }
-.opt-box {
-    border: 2px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; text-align: center;
-    transition: 0.2s; display: flex; flex-direction: column; align-items: center; height: 100%;
+.sync-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; padding: 2rem; }
+.sync-box { 
+    border: 1px solid #e2e8f0; border-radius: 16px; padding: 1.5rem; text-align: center; 
+    transition: 0.3s; background: #fff; position: relative;
 }
-.opt-label input:checked + .opt-box { border-color: #6366f1; background: #eef2ff; color: #4f46e5; }
-.opt-icon { font-size: 2rem; margin-bottom: 10px; }
-.opt-text { font-weight: 700; font-size: 1rem; }
-.opt-sub { font-size: 0.8rem; opacity: 0.8; }
+.sync-box:hover { transform: translateY(-5px); box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); border-color: #6366f1; }
+.sync-icon { font-size: 2.5rem; margin-bottom: 15px; color: #64748b; }
+.sync-title { font-weight: 800; color: #1e293b; margin-bottom: 5px; }
+.sync-desc { font-size: 0.85rem; color: #94a3b8; margin-bottom: 1.5rem; }
 
-.btn-push {
-    width: 100%; padding: 16px; background: #6366f1; color: white;
-    border: none; border-radius: 12px; font-weight: 800; font-size: 1.1rem;
-    cursor: pointer; margin-top: 2rem; transition: 0.2s;
-    box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
+.btn-sync {
+    width: 100%; padding: 10px; border-radius: 8px; border: none; font-weight: 700; cursor: pointer;
+    transition: 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.btn-push:hover { background: #4f46e5; transform: translateY(-2px); }
-.alert { padding: 15px; border-radius: 12px; margin-bottom: 20px; font-weight: 600; text-align: center; }
-.alert-success { background: #dcfce7; color: #166534; }
-.alert-danger { background: #fee2e2; color: #991b1b; }
+.btn-code { background: #e0e7ff; color: #4338ca; }
+.btn-code:hover { background: #4338ca; color: white; }
 
-/* Overlay Loading */
-.loading-overlay {
-    position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.9);
-    z-index: 9999; display: none; align-items: center; justify-content: center; flex-direction: column;
-}
-.loader { width: 60px; height: 60px; border: 6px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.btn-sql { background: #eff6ff; color: #1d4ed8; }
+.btn-sql:hover { background: #1d4ed8; color: white; }
+
+.btn-tree { background: #fff7ed; color: #c2410c; }
+.btn-tree:hover { background: #c2410c; color: white; }
+
+/* Loading State */
+.btn-sync.loading { opacity: 0.7; cursor: wait; }
+.spinner { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+@media(max-width: 768px) { .config-grid { grid-template-columns: 1fr; } }
 </style>
 
 <div class="gh-wrapper">
-    <?php if($msg): ?><div class="alert alert-<?= $msg_type ?>"><?= $msg ?></div><?php endif; ?>
-
     <div class="gh-card">
-        <div class="gh-head">
-            <div class="gh-icon"><i class="fa-brands fa-github"></i></div>
-            <h2 class="gh-title">GitHub Direct Sync</h2>
-            <p style="opacity:0.8; margin:5px 0 0;">Upload files directly to your repository.</p>
+        <div class="gh-header">
+            <h2><i class="fa-brands fa-github"></i> GitHub Live Sync</h2>
+            <span style="font-size:0.8rem; background:rgba(255,255,255,0.1); padding:5px 10px; border-radius:20px;">Connected</span>
         </div>
 
-        <form method="POST" class="gh-body" onsubmit="showLoading()">
-            <input type="hidden" name="upload_github" value="1">
+        <div class="gh-config">
+            <div class="config-grid">
+                <input type="password" id="gh_token" class="form-control" placeholder="Access Token" value="<?= htmlspecialchars($gh['gh_token']??'') ?>">
+                <input type="text" id="gh_repo" class="form-control" placeholder="user/repo" value="<?= htmlspecialchars($gh['gh_repo']??'') ?>">
+                <input type="text" id="gh_branch" class="form-control" placeholder="Branch" value="<?= htmlspecialchars($gh['gh_branch']??'main') ?>">
+            </div>
+            <small style="color:#64748b; display:block; margin-top:5px;">* Settings auto-save on sync.</small>
+        </div>
 
-            <div class="form-group">
-                <label class="form-label">Access Token</label>
-                <input type="password" name="gh_token" class="form-control" value="<?= htmlspecialchars($gh_settings['gh_token'] ?? '') ?>" placeholder="ghp_xxxxxxxxxxxx" required>
+        <div class="sync-grid">
+            
+            <div class="sync-box">
+                <i class="fa-solid fa-code sync-icon"></i>
+                <div class="sync-title">Sync Code</div>
+                <div class="sync-desc">Push all PHP/HTML/CSS files.</div>
+                <button class="btn-sync btn-code" onclick="runSync('sync_files', this)">
+                    <i class="fa-solid fa-rotate"></i> Sync Files
+                </button>
             </div>
 
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 15px;">
-                <div class="form-group">
-                    <label class="form-label">Repository</label>
-                    <input type="text" name="gh_repo" class="form-control" value="<?= htmlspecialchars($gh_settings['gh_repo'] ?? '') ?>" placeholder="user/repo" required>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Branch</label>
-                    <input type="text" name="gh_branch" class="form-control" value="<?= htmlspecialchars($gh_settings['gh_branch'] ?? 'main') ?>">
-                </div>
+            <div class="sync-box">
+                <i class="fa-solid fa-database sync-icon"></i>
+                <div class="sync-title">Sync Database</div>
+                <div class="sync-desc">Push latest SQL dump.</div>
+                <button class="btn-sync btn-sql" onclick="runSync('sync_sql', this)">
+                    <i class="fa-solid fa-rotate"></i> Sync DB
+                </button>
             </div>
 
-            <label class="form-label">What to Upload?</label>
-            <div class="opt-grid">
-                <label class="opt-label">
-                    <input type="radio" name="action_type" value="files" checked>
-                    <div class="opt-box">
-                        <i class="fa-solid fa-code opt-icon"></i>
-                        <span class="opt-text">Direct Files</span>
-                        <span class="opt-sub">Upload all files individually</span>
-                    </div>
-                </label>
-                <label class="opt-label">
-                    <input type="radio" name="action_type" value="sql">
-                    <div class="opt-box">
-                        <i class="fa-solid fa-database opt-icon"></i>
-                        <span class="opt-text">Database</span>
-                        <span class="opt-sub">SQL Backup only</span>
-                    </div>
-                </label>
-                <label class="opt-label">
-                    <input type="radio" name="action_type" value="tree">
-                    <div class="opt-box">
-                        <i class="fa-solid fa-sitemap opt-icon"></i>
-                        <span class="opt-text">Structure</span>
-                        <span class="opt-sub">File Tree List</span>
-                    </div>
-                </label>
+            <div class="sync-box">
+                <i class="fa-solid fa-folder-tree sync-icon"></i>
+                <div class="sync-title">Sync Structure</div>
+                <div class="sync-desc">Update file list for AI.</div>
+                <button class="btn-sync btn-tree" onclick="runSync('sync_tree', this)">
+                    <i class="fa-solid fa-rotate"></i> Sync Tree
+                </button>
             </div>
 
-            <button type="submit" class="btn-push">
-                <i class="fa-solid fa-cloud-arrow-up"></i> Start Upload
-            </button>
-        </form>
+        </div>
     </div>
 </div>
 
-<div class="loading-overlay" id="loadingBox">
-    <div class="loader"></div>
-    <h3 style="margin-top:20px; color:#1e293b;">Syncing with GitHub...</h3>
-    <p style="color:#64748b;">This may take a few minutes. Do not close.</p>
-</div>
-
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
-function showLoading() {
-    document.getElementById('loadingBox').style.display = 'flex';
+function runSync(action, btn) {
+    let token = document.getElementById('gh_token').value;
+    let repo = document.getElementById('gh_repo').value;
+    let branch = document.getElementById('gh_branch').value;
+
+    if(!token || !repo) {
+        Swal.fire('Missing Info', 'Please enter Token and Repo Name', 'warning');
+        return;
+    }
+
+    // Loading State
+    let originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner spinner"></i> Syncing...';
+    btn.classList.add('loading');
+    btn.disabled = true;
+
+    let formData = new FormData();
+    formData.append('ajax_action', action);
+    formData.append('gh_token', token);
+    formData.append('gh_repo', repo);
+    formData.append('gh_branch', branch);
+
+    fetch('github_sync.php', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        btn.innerHTML = originalText;
+        btn.classList.remove('loading');
+        btn.disabled = false;
+
+        if(data.status === 'success') {
+            Swal.fire('Synced!', data.msg, 'success');
+        } else {
+            Swal.fire('Failed', data.msg, 'error');
+        }
+    })
+    .catch(err => {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+        Swal.fire('Error', 'Network or Server Error', 'error');
+    });
 }
 </script>
 
