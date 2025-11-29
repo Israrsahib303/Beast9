@@ -1,4 +1,4 @@
-# SubHub v6.3 - Automated Subscription Platform
+*# israrliaqat v6.3 - Automated Subscription Platform
 
 Welcome to SubHub, a premium digital platform for selling and managing subscriptions.
 
