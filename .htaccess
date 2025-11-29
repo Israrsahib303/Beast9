@@ -1,0 +1,18 @@
+# Prevent Directory Listing (Files ki list show nahi hogi)
+Options -Indexes
+
+# Protect sensitive files
+<FilesMatch "^\.">
+    Order allow,deny
+    Deny from all
+</FilesMatch>
+
+<Files "error_log">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "beast8.sql">
+    Order allow,deny
+    Deny from all
+</Files>
