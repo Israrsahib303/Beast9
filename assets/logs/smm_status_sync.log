@@ -13297,3 +13297,15 @@ Cron finished at 2025-11-29 22:00:03
 [2025-11-29 20:45:03] --- STATUS SYNC STARTED ---
 [2025-11-30 01:45:03] No in_progress orders found.
 [2025-11-30 01:45:03] --- STATUS SYNC FINISHED ---
+[2025-11-29 20:50:02] --- STATUS SYNC STARTED ---
+[2025-11-30 01:50:02] No in_progress orders found.
+[2025-11-30 01:50:02] --- STATUS SYNC FINISHED ---
+[2025-11-29 20:55:02] --- STATUS SYNC STARTED ---
+[2025-11-30 01:55:02] No in_progress orders found.
+[2025-11-30 01:55:02] --- STATUS SYNC FINISHED ---
+[2025-11-29 21:00:03] --- STATUS SYNC STARTED ---
+[2025-11-30 02:00:03] No in_progress orders found.
+[2025-11-30 02:00:03] --- STATUS SYNC FINISHED ---
+[2025-11-29 21:05:02] --- STATUS SYNC STARTED ---
+[2025-11-30 02:05:02] No in_progress orders found.
+[2025-11-30 02:05:02] --- STATUS SYNC FINISHED ---
