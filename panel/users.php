@@ -2,62 +2,76 @@
 include '_header.php'; 
 requireAdmin();
 
-// --- 0. AUTO-HEAL DATABASE (Add Missing Columns) ---
+// --- 0. AUTO-HEAL DATABASE (Self-Repairing) ---
 try {
     $cols = $db->query("SHOW COLUMNS FROM users")->fetchAll(PDO::FETCH_COLUMN);
-    if (!in_array('custom_rate', $cols)) {
-        $db->exec("ALTER TABLE users ADD COLUMN custom_rate DECIMAL(5,2) NOT NULL DEFAULT 0.00"); // e.g., -10 means 10% discount
-    }
-    if (!in_array('admin_note', $cols)) {
-        $db->exec("ALTER TABLE users ADD COLUMN admin_note TEXT DEFAULT NULL");
-    }
-    if (!in_array('status', $cols)) {
-        $db->exec("ALTER TABLE users ADD COLUMN status ENUM('active','banned') DEFAULT 'active'");
-    }
+    // Custom Rate
+    if (!in_array('custom_rate', $cols)) $db->exec("ALTER TABLE users ADD COLUMN custom_rate DECIMAL(5,2) NOT NULL DEFAULT 0.00");
+    // Admin Note
+    if (!in_array('admin_note', $cols)) $db->exec("ALTER TABLE users ADD COLUMN admin_note TEXT DEFAULT NULL");
+    // Status
+    if (!in_array('status', $cols)) $db->exec("ALTER TABLE users ADD COLUMN status ENUM('active','banned') DEFAULT 'active'");
+    // Tracking
+    if (!in_array('last_login', $cols)) $db->exec("ALTER TABLE users ADD COLUMN last_login DATETIME DEFAULT NULL");
+    if (!in_array('last_ip', $cols)) $db->exec("ALTER TABLE users ADD COLUMN last_ip VARCHAR(50) DEFAULT NULL");
+    // Verified Badge
+    if (!in_array('is_verified_badge', $cols)) $db->exec("ALTER TABLE users ADD COLUMN is_verified_badge TINYINT(1) DEFAULT 0");
 } catch (Exception $e) { /* Silent */ }
 
 $error = '';
 $success = '';
 
-// --- 1. HANDLE ACTIONS ---
+// --- 1. ACTION HANDLERS ---
 
-// UPDATE USER DETAILS (Edit Modal)
+// A. EDIT USER (Simplified Rate Logic)
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['edit_user'])) {
     $uid = (int)$_POST['user_id'];
     $name = sanitize($_POST['name']);
     $email = sanitize($_POST['email']);
     $role = $_POST['role'];
-    $status = $_POST['status'];
-    $rate = (float)$_POST['custom_rate'];
     $note = sanitize($_POST['admin_note']);
+    $badge = isset($_POST['is_verified_badge']) ? 1 : 0;
+
+    // Easy Custom Rate Logic
+    $rate_val = abs((float)$_POST['rate_value']); // Always positive
+    $rate_type = $_POST['rate_type']; // 'discount' or 'premium'
+    $final_rate = ($rate_type == 'discount') ? -$rate_val : $rate_val;
 
     try {
-        $stmt = $db->prepare("UPDATE users SET name=?, email=?, role=?, status=?, custom_rate=?, admin_note=? WHERE id=?");
-        $stmt->execute([$name, $email, $role, $status, $rate, $note, $uid]);
-        $success = "User #$uid details updated successfully.";
+        $stmt = $db->prepare("UPDATE users SET name=?, email=?, role=?, custom_rate=?, admin_note=?, is_verified_badge=? WHERE id=?");
+        $stmt->execute([$name, $email, $role, $final_rate, $note, $badge, $uid]);
+        $success = "User #$uid updated successfully.";
     } catch (Exception $e) { $error = $e->getMessage(); }
 }
 
-// BULK ACTIONS
-if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['bulk_action'])) {
-    $ids = $_POST['ids'] ?? [];
-    $action_type = $_POST['bulk_type'];
-    if (!empty($ids)) {
-        $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        if ($action_type == 'ban') {
-            $db->prepare("UPDATE users SET status='banned' WHERE id IN ($placeholders)")->execute($ids);
-            $success = count($ids) . " users banned.";
-        } elseif ($action_type == 'activate') {
-            $db->prepare("UPDATE users SET status='active' WHERE id IN ($placeholders)")->execute($ids);
-            $success = count($ids) . " users activated.";
-        } elseif ($action_type == 'delete') {
-            $db->prepare("DELETE FROM users WHERE id IN ($placeholders) AND id != ?")->execute(array_merge($ids, [$_SESSION['user_id']])); // Prevent self-delete
-            $success = count($ids) . " users deleted.";
+// B. SEND SINGLE EMAIL
+if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['send_single_mail'])) {
+    $uid = (int)$_POST['user_id'];
+    $subject = sanitize($_POST['subject']);
+    $msg = $_POST['message']; // HTML allowed
+    
+    // Get User Email
+    $u = $db->query("SELECT email, name FROM users WHERE id=$uid")->fetch();
+    if ($u) {
+        $mail_res = sendEmail($u['email'], $u['name'], $subject, $msg);
+        if ($mail_res['success']) {
+            $success = "Email sent to " . htmlspecialchars($u['email']);
+        } else {
+            $error = "Mail Failed: " . $mail_res['message'];
         }
     }
 }
 
-// UPDATE BALANCE
+// C. QUICK BAN/UNBAN
+if (isset($_GET['toggle_ban'])) {
+    $uid = (int)$_GET['toggle_ban'];
+    $current = $db->query("SELECT status FROM users WHERE id=$uid")->fetchColumn();
+    $new_status = ($current == 'banned') ? 'active' : 'banned';
+    $db->prepare("UPDATE users SET status = ? WHERE id = ?")->execute([$new_status, $uid]);
+    $success = "User " . ($new_status == 'banned' ? 'BANNED 🚫' : 'Activated ✅');
+}
+
+// D. UPDATE BALANCE
 if (isset($_POST['update_balance'])) {
     $uid = (int)$_POST['user_id'];
     $amount = (float)$_POST['amount'];
@@ -68,18 +82,18 @@ if (isset($_POST['update_balance'])) {
         $db->beginTransaction();
         if ($type == 'add') {
             $db->prepare("UPDATE users SET balance = balance + ? WHERE id = ?")->execute([$amount, $uid]);
-            $db->prepare("INSERT INTO wallet_ledger (user_id, type, amount, note) VALUES (?, 'credit', ?, ?)")->execute([$uid, $amount, "Admin Add: $reason"]);
+            $db->prepare("INSERT INTO wallet_ledger (user_id, type, amount, note) VALUES (?, 'credit', ?, ?)")->execute([$uid, $amount, "Admin: $reason"]);
             $success = "Added " . formatCurrency($amount);
         } else {
             $db->prepare("UPDATE users SET balance = balance - ? WHERE id = ?")->execute([$amount, $uid]);
-            $db->prepare("INSERT INTO wallet_ledger (user_id, type, amount, note) VALUES (?, 'debit', ?, ?)")->execute([$uid, $amount, "Admin Deduct: $reason"]);
+            $db->prepare("INSERT INTO wallet_ledger (user_id, type, amount, note) VALUES (?, 'debit', ?, ?)")->execute([$uid, $amount, "Admin: $reason"]);
             $success = "Deducted " . formatCurrency($amount);
         }
         $db->commit();
     } catch (Exception $e) { $db->rollBack(); $error = $e->getMessage(); }
 }
 
-// CHANGE PASSWORD
+// E. CHANGE PASSWORD
 if (isset($_POST['change_pass'])) {
     $uid = (int)$_POST['user_id'];
     $pass = $_POST['new_password'];
@@ -88,16 +102,13 @@ if (isset($_POST['change_pass'])) {
     $success = "Password changed.";
 }
 
-// LOGIN AS USER
-if (isset($_GET['login_as'])) {
-    $target_id = (int)$_GET['login_as'];
-    $u = $db->query("SELECT * FROM users WHERE id=$target_id")->fetch();
-    if ($u) {
-        $_SESSION['user_id'] = $u['id'];
-        $_SESSION['email'] = $u['email'];
-        $_SESSION['is_admin'] = $u['is_admin'];
-        echo "<script>window.location.href='../user/index.php';</script>";
-        exit;
+// F. DELETE USER
+if (isset($_GET['delete_id'])) {
+    $id = (int)$_GET['delete_id'];
+    if ($id == $_SESSION['user_id']) { $error = "Self-delete not allowed!"; } 
+    else {
+        $db->prepare("DELETE FROM users WHERE id = ?")->execute([$id]);
+        $success = "User deleted.";
     }
 }
 
@@ -116,9 +127,10 @@ $where = "1";
 $params = [];
 
 if ($search) {
-    $where .= " AND (name LIKE ? OR email LIKE ?)";
+    $where .= " AND (name LIKE ? OR email LIKE ? OR id = ?)";
     $params[] = "%$search%";
     $params[] = "%$search%";
+    $params[] = $search; // Allow search by ID directly
 }
 if ($role_filter) {
     $where .= " AND role = ?";
@@ -130,10 +142,10 @@ $page = (int)($_GET['page'] ?? 1);
 $per_page = 15;
 $offset = ($page - 1) * $per_page;
 
-$total_users = $db->prepare("SELECT COUNT(id) FROM users WHERE $where");
-$total_users->execute($params);
-$total_count = $total_users->fetchColumn();
-$total_pages = ceil($total_count / $per_page);
+$total_count = $db->prepare("SELECT COUNT(id) FROM users WHERE $where");
+$total_count->execute($params);
+$total_rows = $total_count->fetchColumn();
+$total_pages = ceil($total_rows / $per_page);
 
 $sql = "SELECT u.*, 
         (SELECT COUNT(*) FROM orders WHERE user_id = u.id) as order_count,
@@ -144,311 +156,383 @@ $stmt->execute($params);
 $users = $stmt->fetchAll();
 ?>
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
     :root {
-        --primary: #4f46e5;
-        --bg-body: #f8fafc;
+        --primary: #6366f1;
+        --bg-body: #f1f5f9;
         --card: #ffffff;
         --text: #0f172a;
-        --text-light: #64748b;
         --border: #e2e8f0;
-        --success: #10b981;
         --danger: #ef4444;
-        --warning: #f59e0b;
+        --success: #10b981;
     }
-    body { background: var(--bg-body); font-family: 'Inter', sans-serif; color: var(--text); }
+    body { background: var(--bg-body); font-family: 'Plus Jakarta Sans', sans-serif; color: var(--text); }
 
-    /* STAT CARDS */
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-    .stat-card { background: var(--card); padding: 20px; border-radius: 16px; border: 1px solid var(--border); box-shadow: 0 2px 10px rgba(0,0,0,0.02); display: flex; align-items: center; gap: 15px; }
-    .st-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
-    .st-blue { background: #eef2ff; color: #4f46e5; }
-    .st-green { background: #ecfdf5; color: #10b981; }
-    .st-red { background: #fef2f2; color: #ef4444; }
-    .st-orange { background: #fffbeb; color: #f59e0b; }
-    .st-info h3 { margin: 0; font-size: 1.5rem; font-weight: 800; }
-    .st-info p { margin: 0; color: var(--text-light); font-size: 0.9rem; }
-
-    /* CONTROLS */
-    .controls-bar { background: var(--card); padding: 15px; border-radius: 12px; border: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 15px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-    .search-wrap { display: flex; gap: 10px; flex: 1; min-width: 250px; }
-    .form-input { padding: 10px 15px; border: 1px solid var(--border); border-radius: 8px; outline: none; width: 100%; transition: 0.2s; }
-    .form-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px #e0e7ff; }
+    /* STATS HEADER */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 30px; }
+    .stat-box { background: var(--card); padding: 20px; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); display: flex; align-items: center; gap: 15px; border: 1px solid var(--border); transition: 0.3s; }
+    .stat-box:hover { transform: translateY(-5px); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
+    .s-icon { width: 50px; height: 50px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; }
+    .s-blue { background: #e0e7ff; color: #4338ca; }
+    .s-green { background: #dcfce7; color: #166534; }
+    .s-red { background: #fee2e2; color: #991b1b; }
     
-    .btn { padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; border: none; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; transition: 0.2s; }
-    .btn-primary { background: var(--primary); color: white; }
-    .btn-primary:hover { background: #4338ca; }
-    .btn-white { background: white; border: 1px solid var(--border); color: var(--text); }
-    .btn-white:hover { background: #f8fafc; }
-    .btn-danger { background: var(--danger); color: white; }
-
-    /* TABLE */
-    .table-card { background: var(--card); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
-    .user-table { width: 100%; border-collapse: collapse; min-width: 900px; }
-    .user-table th { background: #f8fafc; padding: 15px 20px; text-align: left; font-size: 0.85rem; font-weight: 600; color: var(--text-light); text-transform: uppercase; border-bottom: 1px solid var(--border); }
-    .user-table td { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; color: var(--text); }
-    .user-table tr:hover { background: #fcfcfd; }
-
-    .user-info { display: flex; align-items: center; gap: 12px; }
-    .avatar { width: 40px; height: 40px; background: #e0e7ff; color: #4f46e5; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.1rem; }
-    .u-name { font-weight: 600; display: block; color: var(--text); }
-    .u-email { font-size: 0.85rem; color: var(--text-light); }
+    /* TOOLBAR */
+    .controls-wrap { background: var(--card); padding: 15px; border-radius: 16px; border: 1px solid var(--border); margin-bottom: 25px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+    .search-group { display: flex; gap: 10px; flex: 1; max-width: 500px; }
+    .inp-modern { padding: 10px 15px; border: 1px solid var(--border); border-radius: 10px; width: 100%; outline: none; transition: 0.2s; font-size: 0.9rem; }
+    .inp-modern:focus { border-color: var(--primary); box-shadow: 0 0 0 3px #e0e7ff; }
     
-    .badge { padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; }
-    .bg-active { background: #dcfce7; color: #166534; }
-    .bg-banned { background: #fee2e2; color: #991b1b; }
-    .bg-admin { background: #f3e8ff; color: #6b21a8; }
+    .btn-x { padding: 10px 20px; border-radius: 10px; font-weight: 700; border: none; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-size: 0.9rem; transition: 0.2s; }
+    .bx-primary { background: var(--primary); color: white; }
+    .bx-primary:hover { background: #4338ca; }
+    .bx-white { background: white; border: 1px solid var(--border); color: #64748b; }
+    .bx-white:hover { background: #f8fafc; color: var(--text); }
 
-    /* ACTIONS */
-    .action-btn { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); background: white; color: var(--text-light); cursor: pointer; transition: 0.2s; }
-    .action-btn:hover { border-color: var(--primary); color: var(--primary); }
+    /* MODERN TABLE */
+    .table-card { background: var(--card); border-radius: 16px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.05); }
+    .x-table { width: 100%; border-collapse: collapse; min-width: 1000px; }
+    .x-table th { background: #f8fafc; color: #64748b; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; padding: 15px 20px; text-align: left; border-bottom: 1px solid var(--border); }
+    .x-table td { padding: 15px 20px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; font-size: 0.9rem; }
+    .x-table tr:hover { background: #fcfcfd; }
+
+    /* USER PROFILE CELL */
+    .user-flex { display: flex; align-items: center; gap: 12px; }
+    .u-avatar { width: 42px; height: 42px; background: #e0e7ff; color: #4338ca; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 1.1rem; border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+    .u-details h4 { margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 700; display: flex; align-items: center; gap: 5px; }
+    .u-details span { font-size: 0.8rem; color: #64748b; display: block; }
+    
+    .badge-verified { color: #0ea5e9; font-size: 0.9rem; } /* Blue Tick */
+
+    /* ACTION BUTTONS */
+    .act-group { display: flex; gap: 6px; }
+    .act-btn { width: 34px; height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--border); background: white; color: #64748b; cursor: pointer; transition: 0.2s; text-decoration: none; }
+    .act-btn:hover { background: #f1f5f9; color: var(--primary); border-color: var(--primary); }
+    .act-ban { color: #ef4444; border-color: #fecaca; }
+    .act-ban:hover { background: #ef4444; color: white; }
+    .act-unban { color: #10b981; border-color: #a7f3d0; }
+    .act-unban:hover { background: #10b981; color: white; }
 
     /* MODAL */
-    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
-    .modal-box { background: white; width: 450px; border-radius: 16px; padding: 25px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); animation: popIn 0.3s ease; }
-    @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); z-index: 999; display: none; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+    .modal-box { background: white; width: 100%; max-width: 500px; padding: 30px; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); position: relative; animation: slideUp 0.3s ease; }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .close-modal { position: absolute; top: 20px; right: 20px; font-size: 1.5rem; color: #94a3b8; cursor: pointer; }
+    .close-modal:hover { color: #ef4444; }
     
-    .input-group { margin-bottom: 15px; }
-    .input-label { display: block; font-size: 0.85rem; font-weight: 600; color: var(--text-light); margin-bottom: 5px; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+    .dot-green { background: #10b981; }
+    .dot-red { background: #ef4444; }
 </style>
 
-<div class="stats-grid">
-    <div class="stat-card">
-        <div class="st-icon st-blue"><i class="fa-solid fa-users"></i></div>
-        <div class="st-info"><h3><?= $stats['total'] ?></h3><p>Total Users</p></div>
+<div class="stats-row">
+    <div class="stat-box">
+        <div class="s-icon s-blue"><i class="fa-solid fa-users"></i></div>
+        <div><h3><?= $stats['total'] ?></h3><p>Total Users</p></div>
     </div>
-    <div class="stat-card">
-        <div class="st-icon st-green"><i class="fa-solid fa-wallet"></i></div>
-        <div class="st-info"><h3><?= formatCurrency($stats['wallet_total']) ?></h3><p>User Funds</p></div>
+    <div class="stat-box">
+        <div class="s-icon s-green"><i class="fa-solid fa-wallet"></i></div>
+        <div><h3><?= formatCurrency($stats['wallet_total']) ?></h3><p>Total Wallet Funds</p></div>
     </div>
-    <div class="stat-card">
-        <div class="st-icon st-orange"><i class="fa-solid fa-user-check"></i></div>
-        <div class="st-info"><h3><?= $stats['active'] ?></h3><p>Active Users</p></div>
-    </div>
-    <div class="stat-card">
-        <div class="st-icon st-red"><i class="fa-solid fa-ban"></i></div>
-        <div class="st-info"><h3><?= $stats['banned'] ?></h3><p>Banned Users</p></div>
+    <div class="stat-box">
+        <div class="s-icon s-red"><i class="fa-solid fa-ban"></i></div>
+        <div><h3><?= $stats['banned'] ?></h3><p>Banned Users</p></div>
     </div>
 </div>
 
-<form method="POST" id="bulkForm">
-<div class="controls-bar">
-    <div class="search-wrap">
-        <input type="text" name="dummy_search" class="form-input" placeholder="Search user..." value="<?= htmlspecialchars($search) ?>" onkeypress="if(event.key==='Enter'){event.preventDefault(); window.location.href='?search='+this.value;}">
-        <select class="form-input" style="width:150px;" onchange="window.location.href='?role='+this.value">
+<div class="controls-wrap">
+    <div class="search-group">
+        <input type="text" class="inp-modern" placeholder="🔍 Search by Name, Email or ID..." id="searchInput" value="<?= htmlspecialchars($search) ?>" onkeypress="if(event.key==='Enter') window.location.href='?search='+this.value">
+        <select class="inp-modern" style="width:150px;" onchange="window.location.href='?role='+this.value">
             <option value="">All Roles</option>
             <option value="user" <?= $role_filter=='user'?'selected':'' ?>>User</option>
             <option value="admin" <?= $role_filter=='admin'?'selected':'' ?>>Admin</option>
         </select>
     </div>
-    <div style="display:flex; gap:10px; align-items:center;">
-        <select name="bulk_type" class="form-input" style="width:140px;">
-            <option value="">Bulk Action</option>
-            <option value="ban">🚫 Ban</option>
-            <option value="activate">✅ Activate</option>
-            <option value="delete">🗑️ Delete</option>
-        </select>
-        <button type="submit" name="bulk_action" class="btn btn-white" onclick="return confirm('Apply to selected?')">Apply</button>
-        <button type="button" class="btn btn-primary" onclick="openModal('addUserModal')">➕ Add User</button>
     </div>
-</div>
 
-<?php if($success): ?><div style="padding:15px; background:#ecfdf5; color:#065f46; border-radius:10px; margin-bottom:20px; font-weight:600;"><i class="fa-solid fa-check"></i> <?= $success ?></div><?php endif; ?>
-<?php if($error): ?><div style="padding:15px; background:#fef2f2; color:#991b1b; border-radius:10px; margin-bottom:20px; font-weight:600;"><i class="fa-solid fa-triangle-exclamation"></i> <?= $error ?></div><?php endif; ?>
+<?php if($success): ?><div style="padding:15px; background:#ecfdf5; color:#065f46; border-radius:12px; margin-bottom:20px; border:1px solid #a7f3d0;"><i class="fa-solid fa-check-circle"></i> <?= $success ?></div><?php endif; ?>
+<?php if($error): ?><div style="padding:15px; background:#fef2f2; color:#991b1b; border-radius:12px; margin-bottom:20px; border:1px solid #fecaca;"><i class="fa-solid fa-triangle-exclamation"></i> <?= $error ?></div><?php endif; ?>
 
 <div class="table-card">
     <div style="overflow-x:auto;">
-    <table class="user-table">
+    <table class="x-table">
         <thead>
             <tr>
-                <th width="40"><input type="checkbox" onclick="toggleAll(this)"></th>
-                <th>User Details</th>
+                <th>User Profile</th>
                 <th>Role / Rate</th>
-                <th>Balance</th>
+                <th>Wallet Balance</th>
                 <th>Status</th>
-                <th>Joined</th>
+                <th>Last Seen</th>
                 <th style="text-align:right;">Actions</th>
             </tr>
         </thead>
         <tbody>
-            <?php foreach($users as $u): 
-                $rate_badge = ($u['custom_rate'] != 0) ? "<span class='badge bg-admin'>{$u['custom_rate']}%</span>" : "";
-            ?>
-            <tr>
-                <td><input type="checkbox" name="ids[]" value="<?= $u['id'] ?>"></td>
-                <td>
-                    <div class="user-info">
-                        <div class="avatar"><?= strtoupper(substr($u['name'],0,1)) ?></div>
-                        <div>
-                            <span class="u-name"><?= htmlspecialchars($u['name']) ?></span>
-                            <span class="u-email"><?= htmlspecialchars($u['email']) ?></span>
-                            <?php if(!empty($u['admin_note'])): ?>
-                                <small style="color:#f59e0b; display:block;"><i class="fa-solid fa-note-sticky"></i> <?= htmlspecialchars($u['admin_note']) ?></small>
-                            <?php endif; ?>
+            <?php if(empty($users)): ?>
+                <tr><td colspan="6" style="text-align:center; padding:40px; color:#94a3b8;">No users found matching query.</td></tr>
+            <?php else: ?>
+                <?php foreach($users as $u): 
+                    $initial = !empty($u['name']) ? strtoupper(substr($u['name'], 0, 1)) : '<i class="fa-solid fa-user"></i>';
+                    $status_dot = ($u['status']=='active') ? 'dot-green' : 'dot-red';
+                    
+                    // Format Custom Rate
+                    $rate_display = "Standard";
+                    if($u['custom_rate'] < 0) $rate_display = "<span style='color:#10b981; font-weight:700;'>".abs($u['custom_rate'])."% OFF</span>";
+                    if($u['custom_rate'] > 0) $rate_display = "<span style='color:#ef4444; font-weight:700;'>+".abs($u['custom_rate'])."% High</span>";
+                ?>
+                <tr>
+                    <td>
+                        <div class="user-flex">
+                            <div class="u-avatar"><?= $initial ?></div>
+                            <div class="u-details">
+                                <h4>
+                                    <?= htmlspecialchars($u['name'] ?? 'No Name') ?> 
+                                    <?php if($u['is_verified_badge']): ?><i class="fa-solid fa-circle-check badge-verified" title="Verified"></i><?php endif; ?>
+                                </h4>
+                                <span><?= htmlspecialchars($u['email']) ?></span>
+                                <?php if(!empty($u['admin_note'])): ?>
+                                    <small style="color:#f59e0b; display:block; margin-top:2px;"><i class="fa-solid fa-note-sticky"></i> <?= htmlspecialchars($u['admin_note']) ?></small>
+                                <?php endif; ?>
+                            </div>
                         </div>
-                    </div>
-                </td>
-                <td>
-                    <span class="badge <?= $u['role']=='admin'?'bg-admin':'bg-active' ?>" style="background:#f1f5f9; color:#475569; border:1px solid #e2e8f0;"><?= ucfirst($u['role']) ?></span>
-                    <?= $rate_badge ?>
-                </td>
-                <td>
-                    <div style="font-weight:700; color:#059669;"><?= formatCurrency($u['balance']) ?></div>
-                    <div style="font-size:0.75rem; color:#64748b;">Orders: <?= number_format($u['order_count']) ?></div>
-                </td>
-                <td>
-                    <span class="badge <?= $u['status']=='active'?'bg-active':'bg-banned' ?>">
-                        <?= ucfirst($u['status']) ?>
-                    </span>
-                </td>
-                <td style="font-size:0.85rem; color:#64748b;"><?= date('d M Y', strtotime($u['created_at'])) ?></td>
-                <td style="text-align:right;">
-                    <div style="display:flex; justify-content:flex-end; gap:5px;">
-                        <button type="button" class="action-btn" title="Manage Funds" onclick="openFunds(<?= $u['id'] ?>, '<?= $u['name'] ?>')"><i class="fa-solid fa-coins"></i></button>
-                        <button type="button" class="action-btn" title="Edit User" onclick='openEdit(<?= json_encode($u) ?>)'><i class="fa-solid fa-pen"></i></button>
-                        <a href="?login_as=<?= $u['id'] ?>" class="action-btn" title="Login As User" onclick="return confirm('Login as <?= $u['name'] ?>?')"><i class="fa-solid fa-ghost"></i></a>
-                        <button type="button" class="action-btn" title="Change Password" onclick="openPass(<?= $u['id'] ?>)"><i class="fa-solid fa-key"></i></button>
-                    </div>
-                </td>
-            </tr>
-            <?php endforeach; ?>
+                    </td>
+                    <td>
+                        <div style="font-weight:600; font-size:0.85rem; margin-bottom:2px; text-transform:uppercase; color:#64748b;"><?= ucfirst($u['role']) ?></div>
+                        <div style="font-size:0.8rem;"><?= $rate_display ?></div>
+                    </td>
+                    <td>
+                        <div style="font-weight:800; color:#059669; font-size:1rem;"><?= formatCurrency($u['balance']) ?></div>
+                        <small style="color:#94a3b8;">Spent: <?= formatCurrency($u['total_spent']??0) ?></small>
+                    </td>
+                    <td>
+                        <span class="status-dot <?= $status_dot ?>"></span> <?= ucfirst($u['status']) ?>
+                    </td>
+                    <td>
+                        <div style="font-size:0.85rem; color:#334155;"><?= $u['last_login'] ? date('d M, h:i A', strtotime($u['last_login'])) : 'Never' ?></div>
+                        <small style="color:#94a3b8;"><?= $u['last_ip'] ?? 'No IP' ?></small>
+                    </td>
+                    <td style="text-align:right;">
+                        <div class="act-group" style="justify-content:flex-end;">
+                            <button type="button" class="act-btn" title="Edit User" onclick='openEdit(<?= json_encode($u) ?>)'><i class="fa-solid fa-pen"></i></button>
+                            
+                            <button type="button" class="act-btn" title="Manage Funds" onclick="openFunds(<?= $u['id'] ?>, '<?= htmlspecialchars($u['name'], ENT_QUOTES) ?>')"><i class="fa-solid fa-coins"></i></button>
+                            
+                            <button type="button" class="act-btn" title="Send Email" onclick="openMail(<?= $u['id'] ?>, '<?= htmlspecialchars($u['email'], ENT_QUOTES) ?>')"><i class="fa-regular fa-envelope"></i></button>
+                            
+                            <?php if($u['status']=='active'): ?>
+                                <a href="?toggle_ban=<?= $u['id'] ?>" class="act-btn act-ban" title="Ban User" onclick="return confirm('Ban this user?')"><i class="fa-solid fa-ban"></i></a>
+                            <?php else: ?>
+                                <a href="?toggle_ban=<?= $u['id'] ?>" class="act-btn act-unban" title="Activate User" onclick="return confirm('Activate user?')"><i class="fa-solid fa-check"></i></a>
+                            <?php endif; ?>
+                            
+                            <div class="action-dropdown" style="position:relative;">
+                                <button class="act-btn" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display=='block'?'none':'block'"><i class="fa-solid fa-ellipsis-vertical"></i></button>
+                                <div class="dropdown-menu" style="display:none; position:absolute; right:0; top:40px; background:white; border:1px solid #ddd; border-radius:8px; width:160px; z-index:50; box-shadow:0 5px 15px rgba(0,0,0,0.1);">
+                                    <a href="?login_as=<?= $u['id'] ?>" style="display:block; padding:10px; text-decoration:none; color:#333; font-size:0.85rem; hover:background:#f5f5f5;" onclick="return confirm('Login as user?')">👻 Login As User</a>
+                                    <a href="#" onclick="openPass(<?= $u['id'] ?>)" style="display:block; padding:10px; text-decoration:none; color:#333; font-size:0.85rem;">🔑 Change Pass</a>
+                                    <a href="?delete_id=<?= $u['id'] ?>" style="display:block; padding:10px; text-decoration:none; color:red; font-size:0.85rem;" onclick="return confirm('DELETE PERMANENTLY?')">🗑️ Delete User</a>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </tbody>
     </table>
     </div>
 </div>
-</form>
 
 <div id="editModal" class="modal-overlay">
     <div class="modal-box">
-        <div style="display:flex; justify-content:space-between; margin-bottom:20px;">
-            <h3 style="margin:0;">✏️ Edit User</h3>
-            <span onclick="closeModal('editModal')" style="cursor:pointer;">&times;</span>
-        </div>
+        <span class="close-modal" onclick="closeModal('editModal')">&times;</span>
+        <h3 style="margin-top:0; margin-bottom:20px;">✏️ Edit User Details</h3>
+        
         <form method="POST">
             <input type="hidden" name="edit_user" value="1">
             <input type="hidden" name="user_id" id="edit_uid">
             
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                <div class="input-group">
-                    <label class="input-label">Full Name</label>
-                    <input type="text" name="name" id="edit_name" class="form-input" required>
+                <div>
+                    <label style="font-size:0.85rem; font-weight:600;">Full Name</label>
+                    <input type="text" name="name" id="edit_name" class="inp-modern" required>
                 </div>
-                <div class="input-group">
-                    <label class="input-label">Email</label>
-                    <input type="email" name="email" id="edit_email" class="form-input" required>
+                <div>
+                    <label style="font-size:0.85rem; font-weight:600;">Email Address</label>
+                    <input type="email" name="email" id="edit_email" class="inp-modern" required>
                 </div>
             </div>
-
+            <br>
+            
             <div style="display:grid; grid-template-columns: 1fr 1fr; gap:15px;">
-                <div class="input-group">
-                    <label class="input-label">Role</label>
-                    <select name="role" id="edit_role" class="form-input">
+                <div>
+                    <label style="font-size:0.85rem; font-weight:600;">Role</label>
+                    <select name="role" id="edit_role" class="inp-modern">
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
                         <option value="staff">Staff</option>
                     </select>
                 </div>
-                <div class="input-group">
-                    <label class="input-label">Status</label>
-                    <select name="status" id="edit_status" class="form-input">
+                <div>
+                    <label style="font-size:0.85rem; font-weight:600;">Status</label>
+                    <select name="status" id="edit_status" class="inp-modern">
                         <option value="active">Active</option>
                         <option value="banned">Banned</option>
                     </select>
                 </div>
             </div>
+            <br>
 
-            <div class="input-group">
-                <label class="input-label">Custom Rate % (e.g. -10 for discount, 10 for profit)</label>
-                <input type="number" name="custom_rate" id="edit_rate" class="form-input" step="0.01">
+            <label style="font-size:0.85rem; font-weight:600; color:#4f46e5;">💸 Custom Rate (VIP Settings)</label>
+            <div style="display:flex; gap:10px; margin-top:5px; background:#f8fafc; padding:10px; border-radius:10px; border:1px solid #e2e8f0;">
+                <select name="rate_type" id="edit_rate_type" class="inp-modern" style="width:40%;">
+                    <option value="discount">Give Discount (-)</option>
+                    <option value="premium">Increase Price (+)</option>
+                </select>
+                <input type="number" name="rate_value" id="edit_rate_val" class="inp-modern" placeholder="Percentage (e.g. 10)" step="0.01">
+            </div>
+            <br>
+
+            <label style="font-size:0.85rem; font-weight:600;">Admin Note (Private)</label>
+            <textarea name="admin_note" id="edit_note" class="inp-modern" rows="2" placeholder="Only admins can see this..."></textarea>
+            
+            <div style="margin-top:15px;">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                    <input type="checkbox" name="is_verified_badge" id="edit_badge" style="width:18px; height:18px;">
+                    <span style="font-weight:600; color:#334155;">Give Verified Badge (Blue Tick)</span>
+                </label>
             </div>
 
-            <div class="input-group">
-                <label class="input-label">Admin Note (Private)</label>
-                <textarea name="admin_note" id="edit_note" class="form-input" rows="2" placeholder="Write internal note..."></textarea>
-            </div>
-
-            <button type="submit" class="btn btn-primary" style="width:100%;">Save Changes</button>
+            <button type="submit" class="bx-primary btn-x" style="width:100%; justify-content:center; margin-top:20px;">Save Changes</button>
         </form>
     </div>
 </div>
 
 <div id="fundsModal" class="modal-overlay">
     <div class="modal-box">
-        <h3 style="margin-top:0;">💰 Manage Wallet</h3>
-        <p id="fundUser" style="color:var(--text-light); font-size:0.9rem; margin-bottom:15px;"></p>
+        <span class="close-modal" onclick="closeModal('fundsModal')">&times;</span>
+        <h3 style="margin-top:0;">💰 Wallet Manager</h3>
+        <p id="fundUser" style="color:#64748b; font-size:0.9rem; margin-bottom:20px;"></p>
+        
         <form method="POST">
             <input type="hidden" name="update_balance" value="1">
             <input type="hidden" name="user_id" id="fund_uid">
             
-            <div class="input-group">
-                <label class="input-label">Action</label>
-                <select name="type" class="form-input">
-                    <option value="add">➕ Add Funds</option>
-                    <option value="deduct">➖ Deduct Funds</option>
-                </select>
-            </div>
-            <div class="input-group">
-                <label class="input-label">Amount</label>
-                <input type="number" name="amount" class="form-input" step="any" required placeholder="0.00">
-            </div>
-            <div class="input-group">
-                <label class="input-label">Reason</label>
-                <input type="text" name="reason" class="form-input" required placeholder="Bonus, Refund etc.">
-            </div>
+            <label style="font-size:0.85rem; font-weight:600;">Action</label>
+            <select name="type" class="inp-modern" style="margin-bottom:15px;">
+                <option value="add">➕ Add Money (Credit)</option>
+                <option value="deduct">➖ Remove Money (Debit)</option>
+            </select>
             
-            <div style="display:flex; justify-content:flex-end; gap:10px;">
-                <button type="button" class="btn btn-white" onclick="closeModal('fundsModal')">Cancel</button>
-                <button type="submit" class="btn btn-primary">Update</button>
-            </div>
+            <label style="font-size:0.85rem; font-weight:600;">Amount</label>
+            <input type="number" name="amount" class="inp-modern" placeholder="e.g. 500" step="any" required style="margin-bottom:15px;">
+            
+            <label style="font-size:0.85rem; font-weight:600;">Reason (For Logs)</label>
+            <input type="text" name="reason" class="inp-modern" placeholder="e.g. Bonus / Refund" required style="margin-bottom:20px;">
+            
+            <button type="submit" class="bx-primary btn-x" style="width:100%; justify-content:center;">Update Balance</button>
+        </form>
+    </div>
+</div>
+
+<div id="mailModal" class="modal-overlay">
+    <div class="modal-box">
+        <span class="close-modal" onclick="closeModal('mailModal')">&times;</span>
+        <h3 style="margin-top:0;">✉️ Send Quick Email</h3>
+        <p id="mailUser" style="color:#64748b; font-size:0.9rem; margin-bottom:20px;"></p>
+        
+        <form method="POST">
+            <input type="hidden" name="send_single_mail" value="1">
+            <input type="hidden" name="user_id" id="mail_uid">
+            
+            <label style="font-size:0.85rem; font-weight:600;">Subject</label>
+            <input type="text" name="subject" class="inp-modern" placeholder="Important Notice..." required style="margin-bottom:15px;">
+            
+            <label style="font-size:0.85rem; font-weight:600;">Message</label>
+            <textarea name="message" class="inp-modern" rows="4" placeholder="Type your message here..." required style="margin-bottom:20px;"></textarea>
+            
+            <button type="submit" class="bx-primary btn-x" style="width:100%; justify-content:center;">Send Email 🚀</button>
         </form>
     </div>
 </div>
 
 <div id="passModal" class="modal-overlay">
     <div class="modal-box">
+        <span class="close-modal" onclick="closeModal('passModal')">&times;</span>
         <h3 style="margin-top:0;">🔑 Reset Password</h3>
+        
         <form method="POST">
             <input type="hidden" name="change_pass" value="1">
             <input type="hidden" name="user_id" id="pass_uid">
             
-            <div class="input-group">
-                <label class="input-label">New Password</label>
-                <input type="text" name="new_password" class="form-input" required minlength="6">
-            </div>
-            <button type="submit" class="btn btn-primary" style="width:100%;">Set Password</button>
-            <button type="button" class="btn btn-white" style="width:100%; margin-top:10px;" onclick="closeModal('passModal')">Cancel</button>
+            <label style="font-size:0.85rem; font-weight:600;">New Password</label>
+            <input type="text" name="new_password" class="inp-modern" placeholder="Enter new strong password" required minlength="6" style="margin-bottom:20px;">
+            
+            <button type="submit" class="bx-primary btn-x" style="width:100%; justify-content:center;">Update Password</button>
         </form>
     </div>
 </div>
 
 <script>
-function toggleAll(source) {
-    document.querySelectorAll('input[name="ids[]"]').forEach(el => el.checked = source.checked);
-}
-function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+// --- MODAL LOGIC ---
 function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+// Edit User Populate
 function openEdit(u) {
     document.getElementById('edit_uid').value = u.id;
     document.getElementById('edit_name').value = u.name;
     document.getElementById('edit_email').value = u.email;
     document.getElementById('edit_role').value = u.role;
     document.getElementById('edit_status').value = u.status;
-    document.getElementById('edit_rate').value = u.custom_rate;
     document.getElementById('edit_note').value = u.admin_note;
+    document.getElementById('edit_badge').checked = (u.is_verified_badge == 1);
+
+    // Rate Logic
+    let rate = parseFloat(u.custom_rate);
+    if(rate < 0) {
+        document.getElementById('edit_rate_type').value = 'discount';
+        document.getElementById('edit_rate_val').value = Math.abs(rate);
+    } else {
+        document.getElementById('edit_rate_type').value = 'premium';
+        document.getElementById('edit_rate_val').value = rate;
+    }
+    
     openModal('editModal');
 }
 
 function openFunds(id, name) {
     document.getElementById('fund_uid').value = id;
-    document.getElementById('fundUser').innerText = 'User: ' + name;
+    document.getElementById('fundUser').innerText = 'For: ' + name;
     openModal('fundsModal');
+}
+
+function openMail(id, email) {
+    document.getElementById('mail_uid').value = id;
+    document.getElementById('mailUser').innerText = 'To: ' + email;
+    openModal('mailModal');
 }
 
 function openPass(id) {
     document.getElementById('pass_uid').value = id;
     openModal('passModal');
+}
+
+// Close Dropdowns on outside click
+window.onclick = function(event) {
+    if (!event.target.matches('.act-btn') && !event.target.matches('.fa-ellipsis-vertical')) {
+        var dropdowns = document.getElementsByClassName("dropdown-menu");
+        for (var i = 0; i < dropdowns.length; i++) {
+            var openDropdown = dropdowns[i];
+            if (openDropdown.style.display === 'block') {
+                openDropdown.style.display = 'none';
+            }
+        }
+    }
+    if(event.target.classList.contains('modal-overlay')) {
+        event.target.style.display = 'none';
+    }
 }
 </script>
 
