@@ -242,4 +242,47 @@ if (isset($GLOBALS['settings']['maintenance_mode']) && $GLOBALS['settings']['mai
         }
     }
 }
+// --- ADMIN LOGGER FUNCTION ---
+function logActivity($action, $desc) {
+    global $db;
+    if (session_status() === PHP_SESSION_NONE) session_start();
+    
+    // Sirf agar admin logged in hai tab hi log karo
+    if (isset($_SESSION['is_admin']) && $_SESSION['is_admin']) {
+        $admin_id = $_SESSION['user_id'];
+        $ip = $_SERVER['REMOTE_ADDR'];
+        try {
+            $stmt = $db->prepare("INSERT INTO admin_logs (admin_id, action_type, description, ip_address) VALUES (?, ?, ?, ?)");
+            $stmt->execute([$admin_id, $action, $desc, $ip]);
+        } catch (Exception $e) { /* Silent Fail */ }
+    }
+}
+// --- STAFF PERMISSION CHECKER ---
+function hasPermission($key) {
+    global $db;
+    if (session_status() === PHP_SESSION_NONE) session_start();
+
+    // 1. If Super Admin (ID 1), allow everything
+    if (isset($_SESSION['user_id']) && $_SESSION['user_id'] == 1) return true;
+
+    // 2. Fetch User Permissions from DB
+    if (isset($_SESSION['user_id'])) {
+        // Optimization: You can store permissions in SESSION during login to avoid DB calls
+        $stmt = $db->prepare("SELECT permissions, role FROM users WHERE id = ?");
+        $stmt->execute([$_SESSION['user_id']]);
+        $user = $stmt->fetch();
+
+        // If Role is Admin, allow (Optional: Or enforce strict perms for admins too)
+        if ($user && $user['role'] === 'admin') return true; 
+
+        // Check Specific Permission
+        if ($user && !empty($user['permissions'])) {
+            $perms = json_decode($user['permissions'], true);
+            if (is_array($perms) && in_array($key, $perms)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 ?>
