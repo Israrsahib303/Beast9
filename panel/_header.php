@@ -213,6 +213,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <a class="nav-link <?= ($current_page == 'menus.php') ? 'active' : '' ?>" href="menus.php">
                 <i class="fa-solid fa-list"></i> User menu nav 
             </a>
+            <a class="nav-link <?= ($current_page == 'githubphp') ? 'active' : '' ?>" href="menus.php">
+                <i class="fa-brands fa-github"></i> GitHub Sync
+            </a>
             <a class="nav-link text-danger mt-3" href="../logout.php">
                 <i class="fas fa-sign-out-alt"></i> Logout
             </a>
