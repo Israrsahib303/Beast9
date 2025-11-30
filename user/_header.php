@@ -119,6 +119,38 @@ $curr_flag = $curr_data['flag'];
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
     </style>
+    <style>
+    :root {
+        --primary: <?= $GLOBALS['settings']['theme_primary'] ?? '#4f46e5' ?>;
+        --secondary: <?= $GLOBALS['settings']['theme_secondary'] ?? '#7c3aed' ?>;
+        --bg-body: <?= $GLOBALS['settings']['theme_bg'] ?? '#f8fafc' ?>;
+        --card-bg: <?= $GLOBALS['settings']['theme_card_bg'] ?? '#ffffff' ?>;
+        --text-main: <?= $GLOBALS['settings']['theme_text'] ?? '#0f172a' ?>;
+        --radius: <?= $GLOBALS['settings']['theme_radius'] ?? '16' ?>px;
+        --shadow-opacity: <?= $GLOBALS['settings']['theme_shadow'] ?? '0.05' ?>;
+    }
+    
+    body { background-color: var(--bg-body) !important; color: var(--text-main) !important; }
+    
+    /* Apply Glassmorphism if enabled */
+    <?php if(($GLOBALS['settings']['enable_glass'] ?? '1') == '1'): ?>
+    .card, .modern-card, .tool-card {
+        background: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+    }
+    <?php endif; ?>
+
+    /* Apply Radius & Shadow */
+    .card, .btn, .form-control, .modern-card {
+        border-radius: var(--radius) !important;
+        box-shadow: 0 10px 30px -5px rgba(0,0,0, var(--shadow-opacity)) !important;
+    }
+
+    /* Custom CSS from Admin */
+    <?= $GLOBALS['settings']['custom_css'] ?? '' ?>
+</style>
 </head>
 <body>
 
