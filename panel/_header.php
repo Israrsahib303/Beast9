@@ -138,7 +138,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <a class="nav-link <?= ($current_page == 'staff_manager.php') ? 'active' : '' ?>" href="staff_manager.php">
                 <i class="fa-solid fa-chess-pawn"></i> staff manager 
             </a>
-            
+            <a class="nav-link <?= ($current_page == 'theme_editor.php') ? 'active' : '' ?>" href="theme_editor.php">
+                <i class="fa-solid fa-paintbrush"></i> theme editor
+            </a>
             <a class="nav-link <?= ($current_page == 'reports.php') ? 'active' : '' ?>" href="reports.php">
                 <i class="fas fa-balance-scale-right"></i> profit reports 
             </a>
