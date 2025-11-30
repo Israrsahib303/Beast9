@@ -135,7 +135,16 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <a class="nav-link <?= ($current_page == 'users.php') ? 'active' : '' ?>" href="users.php">
                 <i class="fas fa-users"></i> Users
             </a>
+            <a class="nav-link <?= ($current_page == 'staff_manager.php') ? 'active' : '' ?>" href="staff_manager.php">
+                <i class="fa-solid fa-chess-pawn"></i> staff manager 
+            </a>
             
+            <a class="nav-link <?= ($current_page == 'reports.php') ? 'active' : '' ?>" href="reports.php">
+                <i class="fas fa-balance-scale-right"></i> profit reports 
+            </a>
+            <a class="nav-link <?= ($current_page == 'activity_log.php') ? 'active' : '' ?>" href="activity_log.php">
+                <i class="fa-solid fa-mask"></i> audits spy
+            </a>
             <div class="nav-header">Finance</div>
             <a class="nav-link <?= ($current_page == 'payments.php') ? 'active' : '' ?>" href="payments.php">
                 <i class="fas fa-wallet"></i> Payments
