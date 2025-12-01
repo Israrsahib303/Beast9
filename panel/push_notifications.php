@@ -3,11 +3,45 @@ include '_header.php';
 requireAdmin();
 require_once __DIR__ . '/../includes/push_helper.php';
 
+// --- FIX: Initialize variables to prevent "Undefined variable" errors ---
+$success = '';
+$error = '';
+
+// --- AUTO-FIX: Ensure Safari ID setting exists in Database ---
+try {
+    $chk = $db->query("SELECT count(*) FROM settings WHERE setting_key='onesignal_safari_id'")->fetchColumn();
+    if($chk == 0) {
+        $db->query("INSERT INTO settings (setting_key, setting_value) VALUES ('onesignal_safari_id', '')");
+    }
+} catch (Exception $e) { /* Silent Fail */ }
+
+// --- HELPER FUNCTION TO SAVE SETTINGS SAFELY ---
+function save_setting($db, $key, $val) {
+    $val = sanitize($val);
+    // Check if key exists
+    $stmt = $db->prepare("SELECT id FROM settings WHERE setting_key = ?");
+    $stmt->execute([$key]);
+    if ($stmt->fetch()) {
+        // Update
+        $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = ?")->execute([$val, $key]);
+    } else {
+        // Insert
+        $db->prepare("INSERT INTO settings (setting_key, setting_value) VALUES (?, ?)")->execute([$key, $val]);
+    }
+}
+
 // --- 1. SAVE KEYS ---
 if (isset($_POST['save_keys'])) {
-    $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'onesignal_app_id'")->execute([$_POST['app_id']]);
-    $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'onesignal_api_key'")->execute([$_POST['api_key']]);
-    $success = "API Keys Saved Successfully!";
+    save_setting($db, 'onesignal_app_id', $_POST['app_id']);
+    save_setting($db, 'onesignal_api_key', $_POST['api_key']);
+    save_setting($db, 'onesignal_safari_id', $_POST['safari_id']);
+    
+    // Refresh Globals
+    $GLOBALS['settings']['onesignal_app_id'] = $_POST['app_id'];
+    $GLOBALS['settings']['onesignal_api_key'] = $_POST['api_key'];
+    $GLOBALS['settings']['onesignal_safari_id'] = $_POST['safari_id'];
+
+    $success = "✅ API Keys Saved Successfully! Database updated.";
 }
 
 // --- 2. SEND NOTIFICATION ---
@@ -18,20 +52,11 @@ if (isset($_POST['send_push'])) {
     $img = $_POST['image'];
     $target = $_POST['target']; // 'all', 'active', 'inactive'
     
-    // Handle Targeting Logic (Fetch IDs based on segment)
-    // Note: OneSignal handles segments better, but here we simulate via Player IDs if needed
-    // For simplicity in this script, we pass the 'segment name' or 'all' to the helper.
-    // If you want DB based targeting, you need to fetch IDs here.
-    
     // Action Buttons (JSON)
     $buttons = [];
     if(!empty($_POST['btn1_text'])) $buttons[] = ['id' => 'btn1', 'text' => $_POST['btn1_text'], 'url' => $_POST['btn1_url']];
     if(!empty($_POST['btn2_text'])) $buttons[] = ['id' => 'btn2', 'text' => $_POST['btn2_text'], 'url' => $_POST['btn2_url']];
 
-    // Call Helper (Updated to support buttons)
-    // Note: Ensure push_helper.php supports 'buttons' param or modify it. 
-    // Standard helper usually takes basic args. Let's assume basic for now or pass in array.
-    
     $res = sendPushNotification($target, $title, $msg, $url, $img, $buttons);
     
     if($res['status']) {
@@ -45,11 +70,17 @@ if (isset($_POST['send_push'])) {
 }
 
 // Keys & Icons
-$app_id = $GLOBALS['settings']['onesignal_app_id'] ?? '';
-$api_key = $GLOBALS['settings']['onesignal_api_key'] ?? '';
+$stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key LIKE 'onesignal_%'");
+$os_settings = [];
+while($row = $stmt->fetch()) { $os_settings[$row['setting_key']] = $row['setting_value']; }
+
+$app_id = $os_settings['onesignal_app_id'] ?? '';
+$api_key = $os_settings['onesignal_api_key'] ?? '';
+$safari_id = $os_settings['onesignal_safari_id'] ?? '';
+
 $site_logo = !empty($GLOBALS['settings']['site_logo']) ? "../assets/img/".$GLOBALS['settings']['site_logo'] : '';
 $site_favicon = !empty($GLOBALS['settings']['site_favicon']) ? "../assets/img/".$GLOBALS['settings']['site_favicon'] : '../assets/img/logo.png';
-$default_icon = $site_favicon; // Prefer Favicon for notifications
+$default_icon = $site_favicon; 
 ?>
 
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700;800&display=swap" rel="stylesheet">
@@ -147,7 +178,7 @@ $default_icon = $site_favicon; // Prefer Favicon for notifications
 
 <div class="container-fluid" style="max-width:1600px; margin:0 auto;">
     
-    <?php if($success): ?><div style="margin:20px; padding:15px; background:#dcfce7; color:#166534; border-radius:10px; font-weight:600;">✅ <?= $success ?></div><?php endif; ?>
+    <?php if($success): ?><div style="margin:20px; padding:15px; background:#dcfce7; color:#166534; border-radius:10px; font-weight:600;"><?= $success ?></div><?php endif; ?>
     <?php if($error): ?><div style="margin:20px; padding:15px; background:#fee2e2; color:#b91c1c; border-radius:10px; font-weight:600;">⚠️ <?= $error ?></div><?php endif; ?>
 
     <div id="configBox" style="display:<?= (empty($app_id)) ? 'block' : 'none' ?>; margin:20px;">
@@ -155,11 +186,21 @@ $default_icon = $site_favicon; // Prefer Favicon for notifications
             <div class="nc-head">🔧 OneSignal Configuration</div>
             <div class="nc-body">
                 <form method="POST">
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
-                        <div><label class="form-label">App ID</label><input type="text" name="app_id" class="form-input" value="<?= $app_id ?>"></div>
-                        <div><label class="form-label">REST API Key</label><input type="text" name="api_key" class="form-input" value="<?= $api_key ?>"></div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:20px;">
+                        <div>
+                            <label class="form-label">OneSignal App ID</label>
+                            <input type="text" name="app_id" class="form-input" value="<?= sanitize($app_id) ?>" placeholder="e.g. 27391ec5..." required>
+                        </div>
+                        <div>
+                            <label class="form-label">REST API Key (Not User Key)</label>
+                            <input type="text" name="api_key" class="form-input" value="<?= sanitize($api_key) ?>" placeholder="e.g. os_v2_app_..." required>
+                        </div>
+                        <div>
+                            <label class="form-label">Safari Web ID</label>
+                            <input type="text" name="safari_id" class="form-input" value="<?= sanitize($safari_id) ?>" placeholder="web.onesignal.auto...">
+                        </div>
                     </div>
-                    <button type="submit" name="save_keys" class="btn-send" style="margin-top:15px; width:auto;">Save Keys</button>
+                    <button type="submit" name="save_keys" class="btn-send" style="margin-top:15px; width:auto;">Save Configuration</button>
                 </form>
             </div>
         </div>
@@ -192,7 +233,7 @@ $default_icon = $site_favicon; // Prefer Favicon for notifications
                         <div>
                             <label class="form-label">Target Audience</label>
                             <select name="target" class="form-input">
-                                <option value="all">📢 All Subscribers</option>
+                                <option value="all">📢 All Subscribers (Recommended)</option>
                                 <option value="active">🟢 Active Users (7 Days)</option>
                                 <option value="inactive">💤 Inactive Users (30 Days)</option>
                             </select>
