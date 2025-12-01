@@ -1,7 +1,7 @@
 <?php
 /**
  * SMM API Helper Class
- * Fixed: Added balance() function to prevent errors
+ * Fully Fixed & Optimized
  */
 class SmmApi
 {
@@ -59,24 +59,23 @@ class SmmApi
         return ['success' => true, 'services' => $data];
     }
     
-    // --- YEH HAI WO FIX (New Function) ---
+    // --- FIXED: Added balance() alias for compatibility ---
     public function balance()
     {
-        return $this->getBalance(); // Purane function ko call kar lega
+        return $this->getBalance();
     }
-    // -------------------------------------
 
     public function getBalance()
     {
         $response = $this->connect('balance');
         $data = json_decode($response, true);
 
-        if (isset($data['balance']) && isset($data['currency'])) {
-            return ['success' => true, 'balance' => $data['balance'], 'currency' => $data['currency']];
-        }
-        
         if (isset($data['balance'])) {
-             return ['success' => true, 'balance' => $data['balance'], 'currency' => $data['currency'] ?? 'USD'];
+             return [
+                 'success' => true, 
+                 'balance' => $data['balance'], 
+                 'currency' => $data['currency'] ?? 'USD'
+             ];
         }
         
         return ['success' => false, 'error' => $data['error'] ?? 'Invalid balance response'];
