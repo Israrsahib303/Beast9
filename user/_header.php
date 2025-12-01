@@ -2,15 +2,11 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 // --- 1. REQUIRED FILES ---
-if (file_exists(__DIR__ . '/../includes/helpers.php')) { require_once __DIR__ . '/../includes/helpers.php'; }
-if (file_exists(__DIR__ . '/../includes/db.php')) { require_once __DIR__ . '/../includes/db.php'; }
-
-// --- FIX: FETCH SETTINGS MANUALLY IF NOT LOADED ---
-if (empty($GLOBALS['settings'])) {
-    $stmt = $db->query("SELECT setting_key, setting_value FROM settings");
-    while ($row = $stmt->fetch()) {
-        $GLOBALS['settings'][$row['setting_key']] = $row['setting_value'];
-    }
+if (file_exists(__DIR__ . '/../includes/helpers.php')) {
+    require_once __DIR__ . '/../includes/helpers.php';
+}
+if (file_exists(__DIR__ . '/../includes/db.php')) {
+    require_once __DIR__ . '/../includes/db.php'; 
 }
 
 // --- 2. USER BALANCE LOGIC ---
@@ -30,7 +26,7 @@ if ($user_id > 0) {
 // --- 3. SITE SETTINGS ---
 $site_name = $GLOBALS['settings']['site_name'] ?? 'SubHub';
 $site_logo = $GLOBALS['settings']['site_logo'] ?? '';
-$primary_color = $GLOBALS['settings']['theme_primary'] ?? '#2563eb'; // Default fallback
+$primary_color = '#2563eb'; 
 
 // --- 4. CURRENCY SETUP ---
 $curr_list = function_exists('getCurrencyList') ? getCurrencyList() : ['PKR' => ['rate'=>1, 'symbol'=>'Rs', 'flag'=>'🇵🇰', 'name'=>'Pakistani Rupee']];
@@ -64,66 +60,79 @@ $curr_flag = $curr_data['flag'];
     <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
     <script>
       window.OneSignalDeferred = window.OneSignalDeferred || [];
+      
+      // Save ID to DB Helper
+      function syncOneSignalId(playerId) {
+          if(!playerId) return;
+          console.log("Syncing ID to DB:", playerId);
+          fetch('save_device.php', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: 'player_id=' + playerId
+          }).then(res => res.text())
+            .then(data => console.log("DB Response:", data))
+            .catch(err => console.error("DB Sync Error:", err));
+      }
+
       OneSignalDeferred.push(async function(OneSignal) {
+        // 1. Enable Debugging (Is se errors F12 console mein show honge)
+        OneSignal.Debug.setLogLevel("trace");
+
         await OneSignal.init({
           appId: "<?php echo $GLOBALS['settings']['onesignal_app_id']; ?>",
           <?php if(!empty($GLOBALS['settings']['onesignal_safari_id'])): ?>
           safari_web_id: "<?php echo $GLOBALS['settings']['onesignal_safari_id']; ?>",
           <?php endif; ?>
-          notifyButton: {
-            enable: false, /* Disable default bell to use custom one */
-          },
+          notifyButton: { enable: false }, // Hide default bell (Auto Prompt Only)
           allowLocalhostAsSecureOrigin: true,
+          
+          // 2. CRITICAL FIX: Explicit Service Worker Path (Yeh line bohot zaroori hai)
+          serviceWorkerPath: "OneSignalSDKWorker.js", 
+          serviceWorkerParam: { scope: "/" }
         });
 
-        // Auto Prompt
-        OneSignal.Slidedown.promptPush();
+        // 3. Logic: Force Prompt if not subscribed
+        if (!OneSignal.User.PushSubscription.optedIn) {
+            console.log("User Not Subscribed. Showing Prompt...");
+            try {
+                await OneSignal.Slidedown.promptPush();
+            } catch(e) { console.error("Prompt Error:", e); }
+        } else {
+            console.log("User Already Subscribed. ID:", OneSignal.User.PushSubscription.id);
+            syncOneSignalId(OneSignal.User.PushSubscription.id);
+        }
 
-        // Subscription Change Listener
-        OneSignal.User.PushSubscription.addEventListener("change", async function(event) {
+        // 4. Listen for Subscription Change (Jab user Allow click kare)
+        OneSignal.User.PushSubscription.addEventListener("change", function(event) {
+            console.log("Subscription Changed:", event);
             if (event.current.optedIn) {
-                const playerId = OneSignal.User.PushSubscription.id;
-                if(playerId) {
-                    // Send to PHP
-                    fetch('save_device.php', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'player_id=' + playerId
-                    });
-                    document.getElementById('custom-bell-btn').style.display = 'none';
-                }
+                const newId = OneSignal.User.PushSubscription.id;
+                console.log("New Subscription ID:", newId);
+                syncOneSignalId(newId);
+                alert("✅ Notifications Activated!");
             }
         });
-
-        // Check on load
-        setTimeout(function(){
-            if(OneSignal.User.PushSubscription.optedIn){
-                document.getElementById('custom-bell-btn').style.display = 'none';
-            }
-        }, 2000);
       });
-
-      // Custom Bell Click Action
-      function triggerSubscribe() {
-          OneSignalDeferred.push(async function(OneSignal) {
-              await OneSignal.User.PushSubscription.optIn();
-              OneSignal.Slidedown.promptPush({ force: true });
-          });
-      }
     </script>
     <?php endif; ?>
 
     <style>
         :root {
-            --primary: <?= $primary_color ?>;
+            /* --- Theme Colors --- */
+            --primary: <?= $GLOBALS['settings']['theme_primary'] ?? '#4f46e5' ?>;
+            --secondary: <?= $GLOBALS['settings']['theme_secondary'] ?? '#7c3aed' ?>;
             --bg-body: <?= $GLOBALS['settings']['theme_bg'] ?? '#f8fafc' ?>;
+            --card-bg: <?= $GLOBALS['settings']['theme_card_bg'] ?? '#ffffff' ?>;
             --text-main: <?= $GLOBALS['settings']['theme_text'] ?? '#0f172a' ?>;
             --radius: <?= $GLOBALS['settings']['theme_radius'] ?? '16' ?>px;
             --shadow-opacity: <?= $GLOBALS['settings']['theme_shadow'] ?? '0.05' ?>;
+            
+            /* --- Layout Dimensions --- */
             --nav-height: -10px;         
             --container-width: 700px;
         }
 
+        /* --- CSS Reset --- */
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
 
         body {
@@ -155,39 +164,35 @@ $curr_flag = $curr_data['flag'];
             padding: 0 20px; 
         }
         
-        /* Custom Floating Bell - Forced Visible */
-        #custom-bell-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 55px;
-            height: 55px;
-            background: var(--primary) !important;
-            color: #fff;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
-            z-index: 999999;
-            cursor: pointer;
-            border: 3px solid #fff;
-            animation: float 3s ease-in-out infinite;
+        /* Apply Glassmorphism if enabled */
+        <?php if(($GLOBALS['settings']['enable_glass'] ?? '1') == '1'): ?>
+        .card, .modern-card, .tool-card {
+            background: rgba(255, 255, 255, 0.85) !important;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
         }
-        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
-
+        <?php endif; ?>
+    
+        /* Apply Radius & Shadow */
+        .card, .btn, .form-control, .modern-card {
+            border-radius: var(--radius) !important;
+            box-shadow: 0 10px 30px -5px rgba(0,0,0, var(--shadow-opacity)) !important;
+        }
+    
+        /* Custom CSS from Admin */
         <?= $GLOBALS['settings']['custom_css'] ?? '' ?>
+
+        /* --- Custom Scrollbar --- */
+        ::-webkit-scrollbar { width: 7px; height: 7px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
     </style>
 </head>
 <body>
 
 <?php include '_nav.php'; ?>
-
-<?php if (!empty($GLOBALS['settings']['onesignal_app_id'])): ?>
-<div id="custom-bell-btn" onclick="triggerSubscribe()" title="Enable Notifications">
-    <i class="fa-solid fa-bell"></i>
-</div>
-<?php endif; ?>
 
 <div class="main-content-wrapper">
