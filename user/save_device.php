@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['player_id']) && isset(
 
     if (!empty($player_id)) {
         try {
-            // Ensure column exists in table
+            // Check if column exists
             $check = $db->query("SHOW COLUMNS FROM users LIKE 'one_signal_id'")->fetch();
             if(!$check) {
                 $db->exec("ALTER TABLE users ADD COLUMN one_signal_id VARCHAR(255) DEFAULT NULL");
