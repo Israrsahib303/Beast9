@@ -284,7 +284,6 @@ CREATE TABLE `service_updates` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=2268 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
-INSERT INTO `service_updates` VALUES('2253','38','TikTok Followers | Speed 10K+ / DAY | ???????? ????????? | ???','TikTok » Followers [ Cheapest ]','423.5000','removed','2025-11-28 19:00:03');
 INSERT INTO `service_updates` VALUES('2254','385','Instagram Views 5% Likes','Instagram » Views + Likes ( Real Profiles )','2.9919','new','2025-11-28 20:00:04');
 INSERT INTO `service_updates` VALUES('2255','386','Instagram Views 10% Likes','Instagram » Views + Likes ( Real Profiles )','5.4605','new','2025-11-28 20:00:04');
 INSERT INTO `service_updates` VALUES('2256','387','Instagram Views 20% Likes','Instagram » Views + Likes ( Real Profiles )','10.3987','new','2025-11-28 20:00:04');
@@ -307,7 +306,7 @@ CREATE TABLE `settings` (
   `setting_value` text NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `setting_key` (`setting_key`)
-) ENGINE=InnoDB AUTO_INCREMENT=825 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=835 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `settings` VALUES('253','promo_codes_enabled','1');
 INSERT INTO `settings` VALUES('462','jarvis_personality','You are Jarvis, an AI assistant for Admin Israr. Be professional, cool, and slightly robotic like Iron Man&amp;amp;amp;#039;s assistant. Speak in Hinglish (mix of Hindi/Urdu and English).');
@@ -370,8 +369,8 @@ INSERT INTO `settings` VALUES('730','clr_border','#e2e8f0');
 INSERT INTO `settings` VALUES('731','float_color','#25D366');
 INSERT INTO `settings` VALUES('762','onesignal_app_id','27391ec5-dfff-418e-9709-7640bc3dc515');
 INSERT INTO `settings` VALUES('808','onesignal_safari_id','web.onesignal.auto.54eebb47-16d1-4f2f-8c9e-9bb7522bb051');
-INSERT INTO `settings` VALUES('823','gh_repo','Israrsahib303/Beast9');
-INSERT INTO `settings` VALUES('824','gh_branch','main');
+INSERT INTO `settings` VALUES('833','gh_repo','Israrsahib303/Beast9');
+INSERT INTO `settings` VALUES('834','gh_branch','main');
 
 
 CREATE TABLE `smm_categories` (
@@ -382,7 +381,7 @@ CREATE TABLE `smm_categories` (
   `is_active` tinyint(1) NOT NULL DEFAULT 1,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=1960 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=1961 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `smm_categories` VALUES('1','TikTok » Likes [ Cheapest ]','TikTok.png','0','1');
 INSERT INTO `smm_categories` VALUES('4','TikTok » Accounts [ Real – UK / USA ]','TikTok.png','0','1');
@@ -1083,7 +1082,7 @@ CREATE TABLE `users` (
 
 INSERT INTO `users` VALUES('1','admin','$2y$10$1NhdsLS6gNSeY7Cu1EB/k.8C4cXUZALn/w9jBB8JcJQnOExkk/bAq','','1.00','','REDACTED','1','2025-11-09 21:21:18','','','','','','active','1','','','','','0.00','','','','0','','admin','');
 INSERT INTO `users` VALUES('2','israrsahib6@gmail.com','$2y$10$aFc0eWL44tNlgcX7uAzCOu9gOk2w8GuTXSDrLgYljzz/jci8hnn9e','','6.00','2025-11-30 10:50:01','REDACTED','1','2025-11-09 21:45:53','','','','','','active','1','','','','','0.00','','','','0','','admin','');
-INSERT INTO `users` VALUES('3','israrliaqat48@gmail.com','$2y$10$Hchc6dh3xnLeiyImGjcWMuqUodlFuA58Mhe3yhA4DAFgQh5/XK2Ru','113137443718805059578','2537.81','2025-11-29 18:02:22','REDACTED','0','2025-11-09 21:50:59','Israr Liaqat 6','','','','2025-11-29 18:09:09','active','1','','','870725','2025-11-30 23:20:52','0.00','','','','0','','user','');
+INSERT INTO `users` VALUES('3','israrliaqat48@gmail.com','$2y$10$Hchc6dh3xnLeiyImGjcWMuqUodlFuA58Mhe3yhA4DAFgQh5/XK2Ru','113137443718805059578','2537.81','2025-11-29 18:02:22','REDACTED','0','2025-11-09 21:50:59','Israr Liaqat 6','','','','2025-11-29 18:09:09','active','1','','','870725','2025-11-30 23:20:52','0.00','','','','0','','user','4646cb26-b52f-48d5-b315-b734e6f8ff64');
 INSERT INTO `users` VALUES('4','amirnazir2828@gmail.com','$2y$10$n2Uy.t8H9NIdpbUQVUwGMOBX12xvezRuga9JNevcnoJoShM3nGNei','101527224131157562261','0.00','','REDACTED','0','2025-11-10 22:34:55','Amir Nazir','','','','','active','1','','','','','0.00','','','','0','','user','');
 INSERT INTO `users` VALUES('5','kibadiw668@fermiro.com','$2y$10$dJtrMilfFmPKBk2c88rwC.sUFtBfLGaPjWljFtGcp8pH2DzyhwHk6','','0.00','','REDACTED','0','2025-11-11 19:45:40','','','','','','active','1','','','','','0.00','','','','0','','user','');
 INSERT INTO `users` VALUES('6','israrliaqat2005@gmail.com','$2y$10$g6j/J1kc/vapM9CzQqzUy.9O4oXLYNaP8PnuHjYIWc9JDP.4X8Bdm','','0.00','','REDACTED','0','2025-11-17 00:47:54','','','','','','active','1','','','','','0.00','','','','0','','user','');
