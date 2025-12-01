@@ -1,11 +1,14 @@
-const CACHE_NAME = 'subhub-v2'; // Version change kiya taaki naya cache bane
+// Import OneSignal Service Worker (Important for Notifications)
+importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
+
+const CACHE_NAME = 'subhub-v3'; 
 const urlsToCache = [
   'user/index.php',
   'user/smm_order.php',
   'assets/css/style.css',
   'assets/css/smm_style.css',
-  'manifest.php', // <--- Yahan .json ki jagah .php kar diya
-  'assets/img/logo.png' // Default logo fallback
+  'manifest.php',
+  'assets/img/logo.png'
 ];
 
 // Install SW
