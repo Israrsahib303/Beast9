@@ -1,9 +1,9 @@
 <?php
-// includes/ai_tool_handler.php - Database Connected & Groq Powered
+// includes/ai_tool_handler.php - Fixed & Optimized
 require_once 'db.php';
 header('Content-Type: application/json');
 
-// Error Reporting Off
+// Error Reporting Off (To prevent JSON breakage)
 error_reporting(0);
 ini_set('display_errors', 0);
 
@@ -29,13 +29,13 @@ if (empty($user_input)) { echo json_encode(['reply' => 'Please enter some detail
 
 // --- HELPER: SEARCH DATABASE ---
 function searchServices($db, $query, $currency) {
-    // Keywords tod kar search karo (e.g. "tiktok likes" -> "tiktok" AND "likes")
+    // Keywords logic
     $terms = explode(' ', $query);
     $sql_parts = [];
     $params = [];
     
     foreach($terms as $term) {
-        if(strlen($term) > 2) { // Chote words ignore karo
+        if(strlen($term) > 2) { // Ignore small words
             $sql_parts[] = "name LIKE ?";
             $params[] = "%$term%";
         }
@@ -75,8 +75,8 @@ function searchServices($db, $query, $currency) {
 
     return empty($result_text) ? "No matching services found in DB." : $result_text;
 }
-// ------------------------------
 
+// 2. DEFINE BASE INSTRUCTION GLOBALLY (Fixes Undefined Variable Error)
 $base_instruction = "
 You are an AI Sales Expert for '$site_name'.
 Goal: Help users and SELL them our services.
@@ -104,7 +104,7 @@ switch ($tool_id) {
         break;
 
     case 'audit': 
-        // Audit ke liye bhi thoda DB data le lo (Generic)
+        // Audit logic
         $db_results = searchServices($db, "Followers Likes", $currency);
         
         $prompt = "$base_instruction
