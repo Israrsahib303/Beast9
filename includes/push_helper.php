@@ -1,11 +1,11 @@
 <?php
 // includes/push_helper.php
-// Engine to send Push Notifications via OneSignal (Fixed Authentication)
+// FIXED: OneSignal "No Subscribed Users" Error Handling
 
 function sendPushNotification($user_id, $heading, $content, $url = null, $image = null, $buttons = []) {
     global $db;
     
-    // 1. Fetch Settings
+    // 1. Settings Fetch Karein
     $settings = [];
     $stmt = $db->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('onesignal_app_id', 'onesignal_api_key')");
     while($row = $stmt->fetch()) { $settings[$row['setting_key']] = $row['setting_value']; }
@@ -13,50 +13,49 @@ function sendPushNotification($user_id, $heading, $content, $url = null, $image 
     $app_id = trim($settings['onesignal_app_id'] ?? '');
     $api_key = trim($settings['onesignal_api_key'] ?? '');
 
-    // Remove 'Basic ' prefix if user pasted it accidentally
+    // Agar user ne ghalti se 'Basic ' prefix laga diya ho
     if (strpos($api_key, 'Basic ') === 0) {
         $api_key = substr($api_key, 6);
     }
     
     if(empty($app_id) || empty($api_key)) {
-        return ['status' => false, 'msg' => 'API Keys Missing in Settings. Go to Settings > Notifications to add them.'];
+        return ['status' => false, 'msg' => 'API Keys Missing in Settings.'];
     }
 
-    // 2. Prepare Fields
+    // 2. Data Prepare Karein
     $fields = array(
         'app_id' => $app_id,
         'headings' => array("en" => $heading),
         'contents' => array("en" => $content),
-        'url' => $url ?? SITE_URL // Default to home if no link
+        'url' => $url ?? SITE_URL
     );
 
-    // Image
     if(!empty($image)) {
         $fields['big_picture'] = $image;
         $fields['chrome_web_image'] = $image;
     }
 
-    // Buttons
     if(!empty($buttons)) {
         $fields['buttons'] = $buttons;
     }
 
-    // 3. Targeting
-    // Fix: Ensure user_id matches string 'all' perfectly
+    // 3. Targeting Logic (FIXED)
     if ($user_id == 'all' || $user_id == 'active' || $user_id == 'inactive') {
-        $fields['included_segments'] = array('All'); 
+        // Naye OneSignal accounts mein "Subscribed Users" segment hota hai
+        $fields['included_segments'] = array('Subscribed Users'); 
     } else {
-        // Fetch User's Device ID from Database
+        // Specific User
         $u = $db->prepare("SELECT one_signal_id FROM users WHERE id = ?");
         $u->execute([$user_id]);
         $device_id = $u->fetchColumn();
 
-        if (empty($device_id)) return ['status' => false, 'msg' => 'User not subscribed to notifications'];
-        
+        if (empty($device_id)) {
+            return ['status' => false, 'msg' => 'User is not subscribed (Player ID missing).'];
+        }
         $fields['include_player_ids'] = array($device_id);
     }
 
-    // 4. Send Request
+    // 4. Request Send Karein
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, "https://onesignal.com/api/v1/notifications");
     curl_setopt($ch, CURLOPT_HTTPHEADER, array(
@@ -74,9 +73,15 @@ function sendPushNotification($user_id, $heading, $content, $url = null, $image 
     
     $res_data = json_decode($response, true);
     
-    // Check for OneSignal Errors
+    // 5. Error Handling
     if(isset($res_data['errors'])) {
         $error_msg = is_array($res_data['errors']) ? json_encode($res_data['errors']) : $res_data['errors'];
+        
+        // Friendly Error for Admin
+        if (strpos($error_msg, 'All included players are not subscribed') !== false) {
+            return ['status' => false, 'msg' => 'Abhi tak koi user subscribed nahi hai. Please website par ja kar pehle khud Allow karein.'];
+        }
+        
         return ['status' => false, 'msg' => 'OneSignal Error: ' . $error_msg];
     }
 
