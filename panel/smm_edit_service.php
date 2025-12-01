@@ -4,9 +4,7 @@ include '_header.php';
 $is_category_edit = isset($_GET['category']);
 $id = (int)($_GET['id'] ?? 0);
 $category_name = sanitize($_GET['category'] ?? '');
-$error = '';
-$message = '';
-$service = null;
+$error = ''; $message = ''; $service = null;
 
 if ($is_category_edit) {
     // Category Edit Mode
@@ -125,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="form-group">
                     <label for="service_rate">User Rate (PKR per 1000)</label>
                     <input type="number" id="service_rate" name="service_rate" class="form-control" step="0.0001" value="<?php echo (float)$service['service_rate']; ?>" required>
-                    <small>Provider Rate: <?php echo formatCurrency($service['provider_rate']); ?>. Aap ka Profit Margin: <?php echo formatCurrency($service['service_rate'] - $service['provider_rate']); ?></small>
+                    <small>Provider Rate: <?php echo formatCurrency($service['base_price'] ?? 0); ?>. Aap ka Profit Margin: <?php echo formatCurrency($service['service_rate'] - ($service['base_price'] ?? 0)); ?></small>
                 </div>
 
                 <div class="form-group">
@@ -144,7 +142,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h3 style="margin-top: 20px; border-top: 1px solid #333; padding-top: 10px; font-size: 1.1rem;">Provider Details (Read-Only)</h3>
                 <div class="admin-table-responsive">
                     <table class="admin-table" style="width: 100%;">
-                        <tr><th>Provider Service ID</th><td><?php echo sanitize($service['provider_service_id']); ?></td></tr>
+                        <tr><th>Provider Service ID</th><td><?php echo sanitize($service['service_id'] ?? 'N/A'); ?></td></tr>
                         <tr><th>Min Quantity</th><td><?php echo number_format($service['min']); ?></td></tr>
                         <tr><th>Max Quantity</th><td><?php echo number_format($service['max']); ?></td></tr>
                         <tr><th>Provider ID</th><td><?php echo $service['provider_id']; ?></td></tr>
