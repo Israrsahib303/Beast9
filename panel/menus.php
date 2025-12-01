@@ -38,7 +38,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['save_menu'])) {
     $placement = $_POST['placement'];
     $sort = (int)$_POST['sort_order'];
     $parent_id = (int)$_POST['parent_id'];
-    $icon_color = trim($_POST['icon_color']); 
+    // FIX: Added null coalescing operator ?? to prevent undefined index notice
+    $icon_color = trim($_POST['icon_color'] ?? ''); 
     
     if (empty($label) || empty($link)) {
         $error = "Label and Link are required fields.";
@@ -248,8 +249,9 @@ foreach($all_menus as $m) { if($m['parent_id'] == 0) $parents[] = $m; }
                 <tbody>
                     <?php foreach($all_menus as $m): 
                         $is_child = $m['parent_id'] > 0;
-                        $icon_color = $m['icon_color'] ?: '#6b7280';
-                        $bg_color = $m['icon_color'] ? $m['icon_color'].'15' : '#f3f4f6'; // 15 is roughly 10% opacity in hex
+                        // FIX: Added ?? check to prevent Undefined index: icon_color
+                        $icon_color = $m['icon_color'] ?? '#6b7280';
+                        $bg_color = $icon_color . '15'; // 15 is roughly 10% opacity in hex
                     ?>
                     <tr class="<?= $is_child ? 'bg-light-subtle' : '' ?>">
                         <td>
@@ -294,7 +296,7 @@ foreach($all_menus as $m) { if($m['parent_id'] == 0) $parents[] = $m; }
                                 '<?= $m['placement'] ?>', 
                                 '<?= $m['sort_order'] ?>', 
                                 '<?= $m['parent_id'] ?>',
-                                '<?= $m['icon_color'] ?>'
+                                '<?= $m['icon_color'] ?? '#6366f1' ?>'
                             )" title="Edit">
                                 <i class="fas fa-pen small"></i>
                             </button>
