@@ -1,5 +1,6 @@
 <?php
-// Modified _smm_footer.php
+// Fix: Undefined variable current_page logic to prevent error logs
+$current_page = $current_page ?? basename($_SERVER['PHP_SELF']);
 ?>
     <nav class="smm-bottom-nav">
         <a href="smm_dashboard.php" class="<?php echo ($current_page == 'smm_dashboard.php') ? 'active' : ''; ?>">
