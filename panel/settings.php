@@ -44,41 +44,42 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_settings'])) {
     if (empty($error)) { 
         $data = [
             // GENERAL
-            'site_name' => sanitize($_POST['site_name']),
+            'site_name' => sanitize($_POST['site_name'] ?? ''),
             'site_logo' => $current_logo,
             'site_favicon' => $current_favicon,
-            'whatsapp_number' => sanitize($_POST['whatsapp_number']),
+            'whatsapp_number' => sanitize($_POST['whatsapp_number'] ?? ''),
 
             // FINANCE
-            'currency_symbol' => sanitize($_POST['currency_symbol']),
-            'currency_conversion_rate' => sanitize($_POST['currency_conversion_rate']),
+            'currency_symbol' => sanitize($_POST['currency_symbol'] ?? ''),
+            'currency_conversion_rate' => sanitize($_POST['currency_conversion_rate'] ?? '280.00'),
             'daily_spin_enabled' => isset($_POST['daily_spin_enabled']) ? '1' : '0',
-            'daily_spin_cooldown_hours' => (int)$_POST['daily_spin_cooldown_hours'],
+            'daily_spin_cooldown_hours' => (int)($_POST['daily_spin_cooldown_hours'] ?? 24),
             
             // PWA
-            'pwa_name' => sanitize($_POST['pwa_name']),
-            'pwa_short_name' => sanitize($_POST['pwa_short_name']),
+            'pwa_name' => sanitize($_POST['pwa_name'] ?? ''),
+            'pwa_short_name' => sanitize($_POST['pwa_short_name'] ?? ''),
 
             // AI TOOLS (UPDATED)
             'ai_tools_enabled' => isset($_POST['ai_tools_enabled']) ? '1' : '0',
-            'gemini_api_key' => sanitize($_POST['gemini_api_key'] ?? ''), // Key name kept same for backend compatibility
+            'gemini_api_key' => sanitize($_POST['gemini_api_key'] ?? ''),
+            'jarvis_personality' => sanitize($_POST['jarvis_personality'] ?? ''),
 
-            // THEME COLORS
-            'theme_primary' => sanitize($_POST['theme_primary']), 
-            'theme_hover' => sanitize($_POST['theme_hover']),
-            'bg_color' => sanitize($_POST['bg_color']),
-            'card_color' => sanitize($_POST['card_color']),
-            'text_color' => sanitize($_POST['text_color']),
-            'text_muted_color' => sanitize($_POST['text_muted_color']),
+            // THEME COLORS (Fix: Added ?? '' to prevent undefined index)
+            'theme_primary' => sanitize($_POST['theme_primary'] ?? '#4f46e5'), 
+            'theme_hover' => sanitize($_POST['theme_hover'] ?? '#4338ca'),
+            'bg_color' => sanitize($_POST['bg_color'] ?? '#f3f4f6'),
+            'card_color' => sanitize($_POST['card_color'] ?? '#ffffff'),
+            'text_color' => sanitize($_POST['text_color'] ?? '#1f2937'),
+            'text_muted_color' => sanitize($_POST['text_muted_color'] ?? '#6b7280'),
 
-            // EMAIL / SMTP
-            'smtp_host' => sanitize($_POST['smtp_host']),
-            'smtp_port' => sanitize($_POST['smtp_port']),
-            'smtp_user' => sanitize($_POST['smtp_user']),
-            'smtp_pass' => sanitize($_POST['smtp_pass']),
-            'smtp_secure' => sanitize($_POST['smtp_secure']),
-            'smtp_from_email' => sanitize($_POST['smtp_from_email']),
-            'smtp_from_name' => sanitize($_POST['smtp_from_name'])
+            // EMAIL / SMTP (Fix: Added ?? '' to prevent undefined index)
+            'smtp_host' => sanitize($_POST['smtp_host'] ?? ''),
+            'smtp_port' => sanitize($_POST['smtp_port'] ?? ''),
+            'smtp_user' => sanitize($_POST['smtp_user'] ?? ''),
+            'smtp_pass' => sanitize($_POST['smtp_pass'] ?? ''),
+            'smtp_secure' => sanitize($_POST['smtp_secure'] ?? ''),
+            'smtp_from_email' => sanitize($_POST['smtp_from_email'] ?? ''),
+            'smtp_from_name' => sanitize($_POST['smtp_from_name'] ?? '')
         ];
         
         try {
@@ -94,9 +95,9 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['update_settings'])) {
 
 // --- CHANGE PASSWORD LOGIC ---
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
-    $cur_pass = $_POST['current_password'];
-    $new_pass = $_POST['new_password'];
-    $cnf_pass = $_POST['confirm_password'];
+    $cur_pass = $_POST['current_password'] ?? '';
+    $new_pass = $_POST['new_password'] ?? '';
+    $cnf_pass = $_POST['confirm_password'] ?? '';
     $admin_id = $_SESSION['user_id'];
 
     $stmt = $db->prepare("SELECT password_hash FROM users WHERE id = ?");
@@ -145,7 +146,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
         font-weight: 600; color: #6b7280; cursor: pointer;
         border-radius: 50px; transition: 0.2s; font-size: 0.9rem;
     }
-    .tab-btn:hover { background: #e0e7ff; color: var(--primary); border-color: var(--primary); }
     .tab-btn.active { background: var(--primary); color: #fff; border-color: var(--primary); box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2); }
 
     /* CARDS & FORMS */
@@ -260,6 +260,12 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['change_password'])) {
                 <label class="form-label">Groq API Key</label>
                 <input type="text" name="gemini_api_key" class="form-control" placeholder="gsk_..." value="<?= sanitize($GLOBALS['settings']['gemini_api_key'] ?? '') ?>">
                 <small style="color:#666; display:block; margin-top:5px;">Get your API key from <a href="https://console.groq.com/keys" target="_blank" style="color:var(--primary); font-weight:600;">Groq Console</a>.</small>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Jarvis Personality</label>
+                <textarea name="jarvis_personality" class="form-control" rows="3"><?= sanitize($GLOBALS['settings']['jarvis_personality'] ?? '') ?></textarea>
+                <small style="color:#666;">Set the personality for the AI Assistant.</small>
             </div>
         </div>
 
