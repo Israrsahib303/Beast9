@@ -16,6 +16,8 @@ try {
     if (!in_array('last_ip', $cols)) $db->exec("ALTER TABLE users ADD COLUMN last_ip VARCHAR(50) DEFAULT NULL");
     // Verified Badge
     if (!in_array('is_verified_badge', $cols)) $db->exec("ALTER TABLE users ADD COLUMN is_verified_badge TINYINT(1) DEFAULT 0");
+    // Role (FIX FOR UNDEFINED INDEX ERROR)
+    if (!in_array('role', $cols)) $db->exec("ALTER TABLE users ADD COLUMN role ENUM('user','admin','staff') NOT NULL DEFAULT 'user'");
 } catch (Exception $e) { /* Silent */ }
 
 $error = '';
@@ -280,6 +282,9 @@ $users = $stmt->fetchAll();
                     $rate_display = "Standard";
                     if($u['custom_rate'] < 0) $rate_display = "<span style='color:#10b981; font-weight:700;'>".abs($u['custom_rate'])."% OFF</span>";
                     if($u['custom_rate'] > 0) $rate_display = "<span style='color:#ef4444; font-weight:700;'>+".abs($u['custom_rate'])."% High</span>";
+                    
+                    // FIX: Safe Role Handling
+                    $role_safe = $u['role'] ?? 'user';
                 ?>
                 <tr>
                     <td>
@@ -298,7 +303,7 @@ $users = $stmt->fetchAll();
                         </div>
                     </td>
                     <td>
-                        <div style="font-weight:600; font-size:0.85rem; margin-bottom:2px; text-transform:uppercase; color:#64748b;"><?= ucfirst($u['role']) ?></div>
+                        <div style="font-weight:600; font-size:0.85rem; margin-bottom:2px; text-transform:uppercase; color:#64748b;"><?= ucfirst($role_safe) ?></div>
                         <div style="font-size:0.8rem;"><?= $rate_display ?></div>
                     </td>
                     <td>
@@ -484,7 +489,7 @@ function openEdit(u) {
     document.getElementById('edit_uid').value = u.id;
     document.getElementById('edit_name').value = u.name;
     document.getElementById('edit_email').value = u.email;
-    document.getElementById('edit_role').value = u.role;
+    document.getElementById('edit_role').value = u.role || 'user'; // FIX: Default to 'user' if undefined
     document.getElementById('edit_status').value = u.status;
     document.getElementById('edit_note').value = u.admin_note;
     document.getElementById('edit_badge').checked = (u.is_verified_badge == 1);
