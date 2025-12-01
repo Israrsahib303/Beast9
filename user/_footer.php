@@ -276,6 +276,34 @@ document.addEventListener("DOMContentLoaded", () => { showInstallButton(false); 
     <i class="fab <?= $f_icon ?>"></i>
 </a>
 <?php endif; ?>
+<?php if(!empty($GLOBALS['settings']['onesignal_app_id'])): ?>
+<script src="https://cdn.onesignal.com/sdks/OneSignalSDK.js" async=""></script>
+<script>
+  window.OneSignal = window.OneSignal || [];
+  OneSignal.push(function() {
+    OneSignal.init({
+      appId: "<?= $GLOBALS['settings']['onesignal_app_id'] ?>",
+      safari_web_id: "web.onesignal.auto.xxxxx", // Optional for Mac
+      notifyButton: { enable: true }, // Floating Bell
+      allowLocalhostAsSecureOrigin: true,
+    });
+    
+    // Save Player ID to DB on Subscription
+    OneSignal.on('subscriptionChange', function (isSubscribed) {
+        if(isSubscribed) {
+            OneSignal.getUserId(function(userId) {
+                // Send to PHP
+                fetch('save_device.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'player_id=' + userId
+                });
+            });
+        }
+    });
+  });
+</script>
+<?php endif; ?>
 
 </body>
 </html>
