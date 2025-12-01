@@ -1,6 +1,12 @@
 <?php
 include '_header.php';
 
+// --- FIX: Check if user is logged in to prevent "Undefined index: user_id" error ---
+if (!isset($_SESSION['user_id'])) {
+    echo "<script>window.location.href='../login.php';</script>";
+    exit;
+}
+
 // --- PHP LOGIC (Subscriptions Only) ---
 try {
     // p.is_digital = 0 matlab sirf subscriptions dikhayega
