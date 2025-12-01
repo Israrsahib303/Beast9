@@ -305,7 +305,7 @@ CREATE TABLE `settings` (
   `setting_value` text NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `setting_key` (`setting_key`)
-) ENGINE=InnoDB AUTO_INCREMENT=770 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=779 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 INSERT INTO `settings` VALUES('253','promo_codes_enabled','1');
 INSERT INTO `settings` VALUES('462','jarvis_personality','You are Jarvis, an AI assistant for Admin Israr. Be professional, cool, and slightly robotic like Iron Man&amp;amp;amp;#039;s assistant. Speak in Hinglish (mix of Hindi/Urdu and English).');
@@ -367,8 +367,8 @@ INSERT INTO `settings` VALUES('729','float_pos','right');
 INSERT INTO `settings` VALUES('730','clr_border','#e2e8f0');
 INSERT INTO `settings` VALUES('731','float_color','#25D366');
 INSERT INTO `settings` VALUES('762','onesignal_app_id','27391ec5-dfff-418e-9709-7640bc3dc515');
-INSERT INTO `settings` VALUES('768','gh_repo','Israrsahib303/Beast9');
-INSERT INTO `settings` VALUES('769','gh_branch','main');
+INSERT INTO `settings` VALUES('777','gh_repo','Israrsahib303/Beast9');
+INSERT INTO `settings` VALUES('778','gh_branch','main');
 
 
 CREATE TABLE `smm_categories` (
