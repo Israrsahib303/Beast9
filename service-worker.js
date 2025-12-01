@@ -1,7 +1,8 @@
-// Import OneSignal Service Worker (Important for Notifications)
+// --- 1. OneSignal Service Worker (MUST BE AT TOP) ---
 importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
 
-const CACHE_NAME = 'subhub-v3'; 
+// --- 2. Your Existing Caching Logic ---
+const CACHE_NAME = 'subhub-v4'; // Version updated
 const urlsToCache = [
   'user/index.php',
   'user/smm_order.php',
@@ -13,6 +14,7 @@ const urlsToCache = [
 
 // Install SW
 self.addEventListener('install', (event) => {
+  self.skipWaiting(); // Force activate immediately
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
