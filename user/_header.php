@@ -2,11 +2,15 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 
 // --- 1. REQUIRED FILES ---
-if (file_exists(__DIR__ . '/../includes/helpers.php')) {
-    require_once __DIR__ . '/../includes/helpers.php';
-}
-if (file_exists(__DIR__ . '/../includes/db.php')) {
-    require_once __DIR__ . '/../includes/db.php'; 
+if (file_exists(__DIR__ . '/../includes/helpers.php')) { require_once __DIR__ . '/../includes/helpers.php'; }
+if (file_exists(__DIR__ . '/../includes/db.php')) { require_once __DIR__ . '/../includes/db.php'; }
+
+// --- FIX: FETCH SETTINGS MANUALLY IF NOT LOADED ---
+if (empty($GLOBALS['settings'])) {
+    $stmt = $db->query("SELECT setting_key, setting_value FROM settings");
+    while ($row = $stmt->fetch()) {
+        $GLOBALS['settings'][$row['setting_key']] = $row['setting_value'];
+    }
 }
 
 // --- 2. USER BALANCE LOGIC ---
@@ -26,7 +30,7 @@ if ($user_id > 0) {
 // --- 3. SITE SETTINGS ---
 $site_name = $GLOBALS['settings']['site_name'] ?? 'SubHub';
 $site_logo = $GLOBALS['settings']['site_logo'] ?? '';
-$primary_color = '#2563eb'; 
+$primary_color = $GLOBALS['settings']['theme_primary'] ?? '#2563eb'; // Default fallback
 
 // --- 4. CURRENCY SETUP ---
 $curr_list = function_exists('getCurrencyList') ? getCurrencyList() : ['PKR' => ['rate'=>1, 'symbol'=>'Rs', 'flag'=>'🇵🇰', 'name'=>'Pakistani Rupee']];
@@ -67,19 +71,15 @@ $curr_flag = $curr_data['flag'];
           safari_web_id: "<?php echo $GLOBALS['settings']['onesignal_safari_id']; ?>",
           <?php endif; ?>
           notifyButton: {
-            enable: true, /* Default bell */
-            size: 'medium',
-            theme: 'default',
-            position: 'bottom-left',
-            showCredit: false
+            enable: false, /* Disable default bell to use custom one */
           },
           allowLocalhostAsSecureOrigin: true,
         });
 
-        // Force Prompt on Load
+        // Auto Prompt
         OneSignal.Slidedown.promptPush();
 
-        // Save User ID to Database
+        // Subscription Change Listener
         OneSignal.User.PushSubscription.addEventListener("change", async function(event) {
             if (event.current.optedIn) {
                 const playerId = OneSignal.User.PushSubscription.id;
@@ -89,19 +89,25 @@ $curr_flag = $curr_data['flag'];
                         method: 'POST',
                         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: 'player_id=' + playerId
-                    }).then(res => console.log("Device Saved"));
-                    
-                    // Hide Custom Button
+                    });
                     document.getElementById('custom-bell-btn').style.display = 'none';
                 }
             }
         });
+
+        // Check on load
+        setTimeout(function(){
+            if(OneSignal.User.PushSubscription.optedIn){
+                document.getElementById('custom-bell-btn').style.display = 'none';
+            }
+        }, 2000);
       });
-      
-      // Custom Button Action
+
+      // Custom Bell Click Action
       function triggerSubscribe() {
           OneSignalDeferred.push(async function(OneSignal) {
-              OneSignal.Slidedown.promptPush();
+              await OneSignal.User.PushSubscription.optIn();
+              OneSignal.Slidedown.promptPush({ force: true });
           });
       }
     </script>
@@ -109,21 +115,15 @@ $curr_flag = $curr_data['flag'];
 
     <style>
         :root {
-            /* --- Theme Colors --- */
-            --primary: <?= $GLOBALS['settings']['theme_primary'] ?? '#4f46e5' ?>;
-            --secondary: <?= $GLOBALS['settings']['theme_secondary'] ?? '#7c3aed' ?>;
+            --primary: <?= $primary_color ?>;
             --bg-body: <?= $GLOBALS['settings']['theme_bg'] ?? '#f8fafc' ?>;
-            --card-bg: <?= $GLOBALS['settings']['theme_card_bg'] ?? '#ffffff' ?>;
             --text-main: <?= $GLOBALS['settings']['theme_text'] ?? '#0f172a' ?>;
             --radius: <?= $GLOBALS['settings']['theme_radius'] ?? '16' ?>px;
             --shadow-opacity: <?= $GLOBALS['settings']['theme_shadow'] ?? '0.05' ?>;
-            
-            /* --- Layout Dimensions --- */
             --nav-height: -10px;         
             --container-width: 700px;
         }
 
-        /* --- CSS Reset --- */
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
 
         body {
@@ -155,60 +155,39 @@ $curr_flag = $curr_data['flag'];
             padding: 0 20px; 
         }
         
-        /* Custom Notification Bell (Backup) */
+        /* Custom Floating Bell - Forced Visible */
         #custom-bell-btn {
             position: fixed;
             bottom: 20px;
             right: 20px;
-            width: 50px;
-            height: 50px;
-            background: var(--primary);
-            color: white;
+            width: 55px;
+            height: 55px;
+            background: var(--primary) !important;
+            color: #fff;
             border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-            z-index: 9999;
+            font-size: 24px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.3);
+            z-index: 999999;
             cursor: pointer;
-            animation: pulse 2s infinite;
+            border: 3px solid #fff;
+            animation: float 3s ease-in-out infinite;
         }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+        @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
 
-        /* Apply Glassmorphism if enabled */
-        <?php if(($GLOBALS['settings']['enable_glass'] ?? '1') == '1'): ?>
-        .card, .modern-card, .tool-card {
-            background: rgba(255, 255, 255, 0.85) !important;
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.6);
-        }
-        <?php endif; ?>
-    
-        /* Apply Radius & Shadow */
-        .card, .btn, .form-control, .modern-card {
-            border-radius: var(--radius) !important;
-            box-shadow: 0 10px 30px -5px rgba(0,0,0, var(--shadow-opacity)) !important;
-        }
-    
-        /* Custom CSS from Admin */
         <?= $GLOBALS['settings']['custom_css'] ?? '' ?>
-
-        /* --- Custom Scrollbar --- */
-        ::-webkit-scrollbar { width: 7px; height: 7px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
     </style>
 </head>
 <body>
 
 <?php include '_nav.php'; ?>
 
-<div id="custom-bell-btn" onclick="triggerSubscribe()">
+<?php if (!empty($GLOBALS['settings']['onesignal_app_id'])): ?>
+<div id="custom-bell-btn" onclick="triggerSubscribe()" title="Enable Notifications">
     <i class="fa-solid fa-bell"></i>
 </div>
+<?php endif; ?>
 
 <div class="main-content-wrapper">
