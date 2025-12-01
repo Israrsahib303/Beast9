@@ -1,7 +1,20 @@
 <?php
-// google_callback.php
+// google_callback.php - Fixed SSL Issue using cURL
 require_once 'includes/helpers.php';
 require_once 'includes/google_config.php';
+
+// Helper function for secure API calls
+function http_get_secure($url) {
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Fix SSL Error
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'SubHub-Login');
+    $data = curl_exec($ch);
+    curl_close($ch);
+    return $data;
+}
 
 if (isset($_GET['code'])) {
     // 1. Get Token
@@ -19,14 +32,16 @@ if (isset($_GET['code'])) {
     curl_setopt($ch, CURLOPT_POST, 1);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post_data));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // Fix SSL
     $response = curl_exec($ch);
     curl_close($ch);
     $token_data = json_decode($response, true);
 
     if (isset($token_data['access_token'])) {
-        // 2. Get User Profile
+        // 2. Get User Profile (Using cURL instead of file_get_contents)
         $user_info_url = 'https://www.googleapis.com/oauth2/v1/userinfo?access_token=' . $token_data['access_token'];
-        $user_info = json_decode(file_get_contents($user_info_url), true);
+        $user_info_raw = http_get_secure($user_info_url);
+        $user_info = json_decode($user_info_raw, true);
 
         if (isset($user_info['email'])) {
             $email = $user_info['email'];
@@ -40,7 +55,6 @@ if (isset($_GET['code'])) {
 
             if ($user) {
                 // USER EXISTS -> LOGIN
-                // Update Google ID if missing
                 if (empty($user['google_id'])) {
                     $db->prepare("UPDATE users SET google_id = ?, name = COALESCE(name, ?) WHERE id = ?")->execute([$google_id, $name, $user['id']]);
                 }
@@ -49,14 +63,18 @@ if (isset($_GET['code'])) {
                 $_SESSION['email'] = $user['email'];
                 $_SESSION['is_admin'] = $user['is_admin'];
                 
+                // Add role to session if column exists
+                $_SESSION['role'] = $user['role'] ?? ($user['is_admin'] ? 'admin' : 'user');
+                
                 redirect($user['is_admin'] ? 'panel/index.php' : 'user/index.php');
 
             } else {
-                // USER NEW -> REGISTER (Auto)
-                $random_pass = bin2hex(random_bytes(8)); // Random password
+                // USER NEW -> REGISTER
+                $random_pass = bin2hex(random_bytes(8)); 
                 $hash = password_hash($random_pass, PASSWORD_DEFAULT);
 
-                $stmt = $db->prepare("INSERT INTO users (name, email, password_hash, google_id, is_admin, created_at) VALUES (?, ?, ?, ?, 0, NOW())");
+                // Use 'role' column if your DB has it, otherwise rely on is_admin
+                $stmt = $db->prepare("INSERT INTO users (name, email, password_hash, google_id, is_admin, role, created_at) VALUES (?, ?, ?, ?, 0, 'user', NOW())");
                 $stmt->execute([$name, $email, $hash, $google_id]);
                 
                 $new_user_id = $db->lastInsertId();
@@ -64,6 +82,7 @@ if (isset($_GET['code'])) {
                 $_SESSION['user_id'] = $new_user_id;
                 $_SESSION['email'] = $email;
                 $_SESSION['is_admin'] = 0;
+                $_SESSION['role'] = 'user';
 
                 redirect('user/index.php?welcome=1');
             }
