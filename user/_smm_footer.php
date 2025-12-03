@@ -78,6 +78,294 @@ $current_page = $current_page ?? basename($_SERVER['PHP_SELF']);
         }
     });
     </script>
+
+<?php 
+// --- AUDIO GUIDE LOGIC FOR SMM SECTION ---
+if (!isset($audio_guide)) {
+    $current_page_file = basename($_SERVER['PHP_SELF']);
+    $audio_guide = null;
+    try {
+        if (isset($db)) {
+            $stmt_audio = $db->prepare("SELECT * FROM page_audios WHERE page_key = ? AND is_active = 1");
+            $stmt_audio->execute([$current_page_file]);
+            $audio_guide = $stmt_audio->fetch(PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) { }
+}
+?>
+
+<?php if (isset($audio_guide) && $audio_guide): ?>
+<button onclick="forcePlayAudio()" id="manualAudioBtn" title="Replay Guide" style="display:none; position:fixed; bottom:90px; left:20px; z-index:9998; background:rgba(255,255,255,0.9); border:1px solid #e2e8f0; border-radius:50%; width:45px; height:45px; box-shadow:0 5px 15px rgba(0,0,0,0.1); cursor:pointer; color:#4f46e5; align-items:center; justify-content:center; backdrop-filter:blur(5px); transition:all 0.3s ease;">
+    <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>
+</button>
+
+<style>
+    /* --- 🎧 ULTRA PREMIUM LIGHT THEME AUDIO POPUP --- */
+    .audio-island-ai {
+        position: fixed;
+        /* Positioned to avoid header */
+        top: 110px; 
+        left: 50%;
+        
+        /* Initial State */
+        transform: translateX(-50%) translateY(-20px);
+        opacity: 0;
+        display: none; /* Controlled by JS now */
+
+        /* Light Glass Theme */
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        
+        /* Layout */
+        padding: 8px 12px 8px 16px;
+        border-radius: 50px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: auto;
+        min-width: 280px;
+        max-width: 90vw;
+        
+        /* Soft, Clean Shadow & Border */
+        border: 1px solid rgba(255, 255, 255, 1);
+        box-shadow: 
+            0 15px 40px rgba(0, 0, 0, 0.08),
+            0 2px 5px rgba(0, 0, 0, 0.02);
+            
+        z-index: 2147483647 !important; 
+        
+        /* Smooth Transition */
+        transition: all 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+
+    /* Animation Visualizer */
+    .ai-visualizer {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        height: 20px;
+        min-width: 20px;
+    }
     
-</body>
-</html>
+    /* Colorful Bars for Light Theme */
+    .ai-bar {
+        width: 3px;
+        background: linear-gradient(to top, #6366f1, #8b5cf6);
+        border-radius: 2px;
+        animation: equalizer 0.8s ease-in-out infinite;
+    }
+    .ai-bar:nth-child(1) { height: 8px; animation-delay: 0.0s; }
+    .ai-bar:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+    .ai-bar:nth-child(3) { height: 12px; animation-delay: 0.2s; }
+    .ai-bar:nth-child(4) { height: 18px; animation-delay: 0.3s; }
+
+    .ai-content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        margin-right: 5px;
+        overflow: hidden;
+    }
+
+    .ai-label {
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+        color: #6366f1; /* Indigo */
+        margin-bottom: 2px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .ai-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #1e293b; /* Dark Slate */
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 180px;
+    }
+
+    /* Progress Bar */
+    .ai-progress-container {
+        width: 100%;
+        height: 3px;
+        background: #e2e8f0; /* Light Grey */
+        border-radius: 10px;
+        margin-top: 4px;
+        overflow: hidden;
+    }
+    .ai-progress-fill {
+        height: 100%;
+        background: #6366f1;
+        width: 0%; 
+        transition: width 0.1s linear;
+    }
+
+    /* Close Button (Darker for Contrast) */
+    .ai-close-btn {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: #f1f5f9;
+        border: 1px solid #e2e8f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        color: #64748b;
+        flex-shrink: 0;
+    }
+    
+    .ai-close-btn:hover {
+        background: #fee2e2;
+        border-color: #fecaca;
+        color: #ef4444;
+        transform: scale(1.1);
+    }
+
+    @keyframes equalizer {
+        0%, 100% { transform: scaleY(0.4); }
+        50% { transform: scaleY(1.0); }
+    }
+    
+    @media (max-width: 600px) {
+        .audio-island-ai {
+            width: 85%;
+            top: 110px; /* Safe distance from header */
+        }
+    }
+</style>
+
+<div class="audio-island-ai" id="aiPopup">
+    <div class="ai-visualizer">
+        <div class="ai-bar"></div>
+        <div class="ai-bar"></div>
+        <div class="ai-bar"></div>
+        <div class="ai-bar"></div>
+    </div>
+    
+    <div class="ai-content">
+        <div class="ai-label">
+            <span style="width:5px; height:5px; background:#10b981; border-radius:50%; display:inline-block;"></span> 
+            AUDIO GUIDE
+        </div>
+        <div class="ai-title">
+            <?= !empty($audio_guide['description']) ? htmlspecialchars($audio_guide['description']) : 'Playing Instruction...' ?>
+        </div>
+        
+        <div class="ai-progress-container">
+             <div class="ai-progress-fill" id="aiProgressBar"></div>
+        </div>
+    </div>
+
+    <audio id="mainAudioPlayer" preload="auto">
+        <source src="../assets/uploads/audio/<?= htmlspecialchars($audio_guide['audio_file']) ?>" type="audio/mpeg">
+    </audio>
+
+    <button class="ai-close-btn" onclick="closeAiPopup()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+    </button>
+</div>
+
+<script>
+// --- SMART PAGE TRACKING LOGIC ---
+const PAGE_KEY = 'seen_audio_<?= md5($current_page_file) ?>';
+
+function closeAiPopup() {
+    const popup = document.getElementById('aiPopup');
+    const audio = document.getElementById('mainAudioPlayer');
+    const btn = document.getElementById('manualAudioBtn');
+
+    if(audio) audio.pause();
+    
+    // Smooth Hide
+    popup.style.opacity = "0";
+    popup.style.transform = "translateX(-50%) translateY(-20px)";
+    
+    setTimeout(() => { 
+        popup.style.display = 'none';
+        if(btn) {
+            btn.style.display = 'flex'; // Show Replay Button
+        }
+    }, 400);
+}
+
+function showAiPopup() {
+    const popup = document.getElementById('aiPopup');
+    const audio = document.getElementById('mainAudioPlayer');
+    const btn = document.getElementById('manualAudioBtn');
+    
+    // Hide Replay Button
+    if(btn) btn.style.display = 'none';
+
+    // Show Popup
+    popup.style.display = 'flex';
+    setTimeout(() => {
+        popup.style.opacity = "1";
+        popup.style.transform = "translateX(-50%) translateY(0)";
+    }, 10);
+
+    if(audio) {
+        audio.volume = 1.0; 
+        
+        audio.ontimeupdate = function() {
+            if(audio.duration) {
+                const percent = (audio.currentTime / audio.duration) * 100;
+                const bar = document.getElementById("aiProgressBar");
+                if(bar) bar.style.width = percent + "%";
+            }
+        };
+        
+        // Auto Close on End
+        audio.onended = function() {
+            setTimeout(closeAiPopup, 1000);
+        };
+
+        // --- FAST AUTOPLAY LOGIC ---
+        var playPromise = audio.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                // If blocked, wait for first click
+                ['click', 'touchstart'].forEach(evt => {
+                     document.addEventListener(evt, function() {
+                         audio.play();
+                     }, { once: true });
+                });
+            });
+        }
+    }
+    
+    // Save to LocalStorage
+    localStorage.setItem(PAGE_KEY, 'true');
+}
+
+// Manual Replay
+function forcePlayAudio() {
+    showAiPopup();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const hasSeen = localStorage.getItem(PAGE_KEY);
+    const btn = document.getElementById('manualAudioBtn');
+
+    if (!hasSeen) {
+        // First Time Visit -> Show Popup
+        setTimeout(showAiPopup, 600); 
+    } else {
+        // Already Seen -> Show Replay Button
+        if(btn) btn.style.display = 'flex';
+    }
+});
+</script>
+<?php endif; ?>
