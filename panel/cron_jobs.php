@@ -51,7 +51,7 @@ function tailCustom($filepath, $lines = 10) {
 }
 
 // --- FIXED PHP PATH (As per your request) ---
-$php_bin = '/usr/local/bin/php'; 
+$php_bin = '/usr/bin/php';
 
 // --- CRON CONFIGURATION ---
 $crons = [
