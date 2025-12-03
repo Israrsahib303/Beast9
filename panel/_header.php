@@ -195,7 +195,9 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <a class="nav-link <?= ($current_page == 'tutorials.php') ? 'active' : '' ?>" href="tutorials.php">
                 <i class="fa-solid fa-arrow-up-from-bracket"></i> Tutorials Manage
             </a>
-            
+            <a class="nav-link <?= ($current_page == 'manage_audio') ? 'active' : '' ?>" href="manage_audio.php">
+                <i class="fa-solid fa-microphone"></i> manage audio
+            </a>
             <div class="nav-header">System</div>
             <a class="nav-link <?= ($current_page == 'providers.php') ? 'active' : '' ?>" href="providers.php">
                 <i class="fas fa-server"></i> Providers
@@ -227,6 +229,11 @@ $current_page = basename($_SERVER['PHP_SELF']);
             <a class="nav-link <?= ($current_page == 'github_sync.php') ? 'active' : '' ?>" href="github_sync.php">
                 <i class="fa-brands fa-github"></i> GitHub Sync
             </a>
+            
+ <a class="nav-link <?= ($current_page == 'secure_vault.php') ? 'active' : '' ?>" href="secure_vault.php">
+                <i class="fa-solid fa-vault"></i> Admin vault
+            </a>
+            
             <a class="nav-link text-danger mt-3" href="../logout.php">
                 <i class="fas fa-sign-out-alt"></i> Logout
             </a>
