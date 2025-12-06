@@ -112,8 +112,9 @@ if ($action == 'sync_confirm' && $_SERVER['REQUEST_METHOD'] == 'POST') {
                             $sql = "UPDATE smm_services SET name=?, category=?, base_price=?, service_rate=?, min=?, max=?, avg_time=?, description=?, has_refill=?, has_cancel=?, service_type=?, dripfeed=?, is_active=1, manually_deleted=0 WHERE id=?";
                             $db->prepare($sql)->execute([$name, $cat, $base_price_pkr, $selling_price, $min, $max, $avg, $desc, $refill, $cancel, $type, $drip, $id]);
                         } else {
+                            // --- FIX APPLIED HERE: Added '1' at the end of the array ---
                             $sql = "INSERT INTO smm_services (provider_id, service_id, name, category, base_price, service_rate, min, max, avg_time, description, has_refill, has_cancel, service_type, dripfeed, is_active, manually_deleted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0)";
-                            $db->prepare($sql)->execute([$provider['id'], $s['service'], $name, $cat, $base_price_pkr, $selling_price, $min, $max, $avg, $desc, $refill, $cancel, $type, $drip]);
+                            $db->prepare($sql)->execute([$provider['id'], $s['service'], $name, $cat, $base_price_pkr, $selling_price, $min, $max, $avg, $desc, $refill, $cancel, $type, $drip, 1]);
                         }
                         $cnt++;
                     }
