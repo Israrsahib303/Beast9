@@ -71,7 +71,7 @@ try {
         FROM smm_orders o
         JOIN smm_services s ON o.service_id = s.id
         WHERE o.status = 'pending'
-        LIMIT 15
+        LIMIT 100
     ");
     $stmt_orders->execute();
     $pending_orders = $stmt_orders->fetchAll();
