@@ -1,256 +1,211 @@
 <?php
-// --- 1. CORE HELPERS & SESSION (Sabse Pehle) ---
-require_once __DIR__ . '/../includes/helpers.php';
+// --- 1. CORE HELPERS & SESSION ---
+if (!defined('SITE_URL')) {
+    require_once __DIR__ . '/../includes/helpers.php';
+}
 
-// --- 2. GHOST MODE LOCK (Security Check) ---
-// Agar banda Secret Link se nahi aaya, toh usse 404 dikhao
+// --- 2. SECURITY CHECKS ---
 require_once __DIR__ . '/admin_lock.php';
-
-// --- 3. AUTH CHECK (Admin Login Hai?) ---
 require_once __DIR__ . '/_auth_check.php';
 
-// --- Page Logic Starts Below ---
+// --- 3. PAGE LOGIC ---
 $current_page = basename($_SERVER['PHP_SELF']);
+
+// --- 4. FETCH MENU ---
+$admin_menu_tree = [];
+try {
+    $stmt = $db->query("SELECT * FROM admin_menus WHERE status = 1 ORDER BY sort_order ASC");
+    $all_items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($all_items as $item) {
+        $admin_menu_tree[$item['parent_id']][] = $item;
+    }
+} catch (Exception $e) {}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Panel - <?= htmlspecialchars($GLOBALS['settings']['site_name'] ?? 'SubHub') ?></title>
+    <title>Admin - <?= htmlspecialchars($GLOBALS['settings']['site_name'] ?? 'Panel') ?></title>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
     <link rel="stylesheet" href="../assets/css/admin.css">
     
     <style>
-        :root {
-            --primary-color: #4f46e5;
-            --sidebar-width: 260px;
-        }
-        
-        body {
-            background-color: #f3f4f6;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
+        :root { --primary-color: #4f46e5; --sidebar-width: 260px; }
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
 
-        /* Sidebar Styles */
+        /* SIDEBAR */
         .sidebar {
-            width: var(--sidebar-width);
-            height: 100vh;
-            position: fixed;
-            top: 0; left: 0;
-            background: #fff;
-            border-right: 1px solid #e5e7eb;
-            padding-top: 20px;
-            z-index: 1000;
-            overflow-y: auto;
+            width: var(--sidebar-width); height: 100vh; position: fixed; top: 0; left: 0;
+            background: #fff; border-right: 1px solid #e5e7eb; z-index: 1000;
+            display: flex; flex-direction: column; transition: transform 0.3s ease;
         }
-        
         .sidebar-brand {
-            padding: 0 25px 20px;
-            font-size: 1.5rem;
-            font-weight: 800;
-            color: var(--primary-color);
-            border-bottom: 1px solid #f3f4f6;
-            margin-bottom: 20px;
-            display: flex; align-items: center; gap: 10px;
+            padding: 25px; font-size: 1.5rem; font-weight: 800; color: var(--primary-color);
+            border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; gap: 10px;
         }
 
+        .nav-links { list-style: none; padding: 15px 0; margin: 0; flex: 1; overflow-y: auto; }
+        .nav-item { position: relative; margin-bottom: 2px; }
+
+        /* NAV LINK */
         .nav-link {
-            color: #4b5563;
-            padding: 12px 25px;
-            font-weight: 500;
-            display: flex; align-items: center; gap: 12px;
-            transition: 0.2s;
-            border-left: 4px solid transparent;
+            color: #4b5563; padding: 12px 25px; font-weight: 600; display: flex; align-items: center; gap: 12px;
+            transition: all 0.2s; border-left: 4px solid transparent; text-decoration: none; cursor: pointer; font-size: 0.95rem;
         }
+        .nav-link:hover { background-color: #f9fafb; color: var(--primary-color); }
+        .nav-link.active { background-color: #eef2ff; color: var(--primary-color); border-left-color: var(--primary-color); }
         
-        .nav-link:hover {
-            background-color: #f9fafb;
-            color: var(--primary-color);
+        .nav-link i.icon { width: 24px; text-align: center; font-size: 1.1rem; }
+        .arrow { margin-left: auto; transition: transform 0.3s; font-size: 0.8rem; opacity: 0.5; }
+        
+        /* OPEN STATE */
+        .nav-item.open .arrow { transform: rotate(180deg); }
+        .nav-item.open > .nav-link { color: var(--primary-color); background: #f8fafc; }
+        
+        /* SUB-MENU */
+        .sub-menu {
+            list-style: none; padding: 0; background: #f8fafc;
+            max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out;
+            border-bottom: 1px solid #f1f5f9;
         }
-        
-        .nav-link.active {
-            background-color: #eef2ff;
-            color: var(--primary-color);
-            border-left-color: var(--primary-color);
+        .sub-menu li a {
+            display: block; padding: 10px 20px 10px 62px; font-size: 0.9rem; color: #64748b;
+            text-decoration: none; transition: 0.2s;
         }
-        
-        .nav-link i { width: 20px; text-align: center; font-size: 1.1rem; }
+        .sub-menu li a:hover, .sub-menu li a.active { color: var(--primary-color); background: #e0e7ff; font-weight: 600; }
 
-        /* Content Area */
-        .main-content {
-            margin-left: var(--sidebar-width);
-            padding: 30px;
-            transition: 0.3s;
-        }
-
-        /* Mobile Toggle */
-        .mobile-toggle { display: none; position: fixed; top: 15px; right: 15px; z-index: 1100; }
+        .main-content { margin-left: var(--sidebar-width); padding: 30px; transition: 0.3s; }
         
+        /* MOBILE */
+        .mobile-toggle { display: none; position: fixed; top: 15px; right: 15px; z-index: 1100; border-radius: 50%; width: 45px; height: 45px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
         @media (max-width: 768px) {
-            .sidebar { transform: translateX(-100%); transition: 0.3s; }
+            .sidebar { transform: translateX(-100%); }
             .sidebar.show { transform: translateX(0); }
-            .main-content { margin-left: 0; }
-            .mobile-toggle { display: block; }
+            .main-content { margin-left: 0; padding: 20px; }
+            .mobile-toggle { display: flex; align-items: center; justify-content: center; }
         }
-        
-        /* Section Headers */
-        .nav-header {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            color: #9ca3af;
-            padding: 20px 25px 10px;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-        }
+        .sidebar::-webkit-scrollbar { width: 5px; }
+        .sidebar::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 10px; }
     </style>
 </head>
 <body>
 
-    <button class="btn btn-primary mobile-toggle" onclick="document.querySelector('.sidebar').classList.toggle('show')">
-        <i class="fas fa-bars"></i>
-    </button>
+    <button class="btn btn-primary mobile-toggle" onclick="document.querySelector('.sidebar').classList.toggle('show')"><i class="fas fa-bars"></i></button>
 
     <div class="sidebar">
-        <div class="sidebar-brand">
-            <i class="fas fa-bolt"></i> Admin Panel
+        <div class="sidebar-brand"><i class="fas fa-bolt"></i> Admin Panel</div>
+
+        <ul class="nav-links">
+            <?php if (!empty($admin_menu_tree[0])): ?>
+                <?php foreach ($admin_menu_tree[0] as $menu): 
+                    $children = $admin_menu_tree[$menu['id']] ?? [];
+                    $has_children = !empty($children);
+                    
+                    // --- KEY LOGIC UPDATE ---
+                    // Parent consider karenge agar:
+                    // 1. Uske bachay (children) hain.
+                    // 2. Ya uska link '#' hai (Empty Folder).
+                    $is_parent_folder = ($menu['link'] === '#' || $menu['link'] === '');
+                    $show_dropdown = ($has_children || $is_parent_folder);
+                    
+                    // Agar dropdown hai toh link disable karo
+                    $menu_link = $show_dropdown ? 'javascript:void(0);' : $menu['link'];
+                    $toggle_class = $show_dropdown ? 'has-dropdown' : '';
+
+                    // Auto-Open Logic
+                    $is_active = ($menu['link'] == $current_page);
+                    $child_active = false;
+                    if ($has_children) {
+                        foreach ($children as $c) {
+                            if ($c['link'] == $current_page) { $child_active = true; break; }
+                        }
+                    }
+                ?>
+                
+                <li class="nav-item <?= $child_active ? 'open' : '' ?>">
+                    <a href="<?= $menu_link ?>" 
+                       class="nav-link <?= ($is_active || $child_active) ? 'active' : '' ?> <?= $toggle_class ?>">
+                        
+                        <i class="fa-solid <?= $menu['icon'] ?> icon" style="color: <?= $menu['color'] ?>"></i>
+                        <span><?= htmlspecialchars($menu['label']) ?></span>
+                        
+                        <?php if ($show_dropdown): ?>
+                            <i class="fa-solid fa-chevron-down arrow"></i>
+                        <?php endif; ?>
+                    </a>
+
+                    <ul class="sub-menu" style="<?= $child_active ? 'max-height:2000px;' : '' ?>">
+                        <?php if ($has_children): ?>
+                            <?php foreach ($children as $sub): 
+                                $sub_active = ($sub['link'] == $current_page) ? 'active' : '';
+                            ?>
+                            <li>
+                                <a href="<?= $sub['link'] ?>" class="<?= $sub_active ?>">
+                                    <i class="fa-solid <?= $sub['icon'] ?>" style="font-size:0.7rem; margin-right:8px; color:<?= $sub['color'] ?>"></i>
+                                    <?= htmlspecialchars($sub['label']) ?>
+                                </a>
+                            </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </li>
+
+                <?php endforeach; ?>
+            <?php else: ?>
+                <div style="padding: 30px 20px; text-align: center; color: #94a3b8;">
+                    <i class="fa-solid fa-triangle-exclamation" style="font-size:1.5rem; margin-bottom:10px;"></i><br>
+                    <small>Menu Empty</small>
+                </div>
+            <?php endif; ?>
+        </ul>
+
+        <div style="padding: 15px; border-top: 1px solid #f3f4f6; margin-top: auto;">
+            <a class="nav-link text-danger" href="../logout.php" style="border-radius:8px;">
+                <i class="fas fa-sign-out-alt icon"></i> Logout
+            </a>
         </div>
-        <a class="nav-link text-danger mt-3" href="../logout.php">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </a>
-        <nav class="nav flex-column">
-            <div class="nav-header">Main</div>
-            <a class="nav-link <?= ($current_page == 'index.php') ? 'active' : '' ?>" href="index.php">
-                <i class="fas fa-home"></i> Dashboard
-            </a>
-            <a class="nav-link <?= ($current_page == 'orders.php') ? 'active' : '' ?>" href="orders.php">
-                <i class="fas fa-shopping-bag"></i> Sub Orders
-            </a>
-            <a class="nav-link <?= ($current_page == 'smm_orders.php') ? 'active' : '' ?>" href="smm_orders.php">
-                <i class="fas fa-rocket"></i> SMM Orders
-            </a>
-            <a class="nav-link <?= ($current_page == 'users.php') ? 'active' : '' ?>" href="users.php">
-                <i class="fas fa-users"></i> Users
-            </a>
-            <a class="nav-link <?= ($current_page == 'staff_manager.php') ? 'active' : '' ?>" href="staff_manager.php">
-                <i class="fa-solid fa-chess-pawn"></i> staff manager 
-            </a>
-            <a class="nav-link <?= ($current_page == 'theme_editor.php') ? 'active' : '' ?>" href="theme_editor.php">
-                <i class="fa-solid fa-paintbrush"></i> theme editor
-            </a>
-            <a class="nav-link <?= ($current_page == 'reports.php') ? 'active' : '' ?>" href="reports.php">
-                <i class="fas fa-balance-scale-right"></i> profit reports 
-            </a>
-            <a class="nav-link <?= ($current_page == 'activity_log.php') ? 'active' : '' ?>" href="activity_log.php">
-                <i class="fa-solid fa-mask"></i> audits spy
-            </a>
-            <div class="nav-header">Finance</div>
-            <a class="nav-link <?= ($current_page == 'payments.php') ? 'active' : '' ?>" href="payments.php">
-                <i class="fas fa-wallet"></i> Payments
-            </a>
-            <a class="nav-link <?= ($current_page == 'methods.php') ? 'active' : '' ?>" href="methods.php">
-                <i class="fas fa-university"></i> Methods
-            </a>
-             <a class="nav-link <?= ($current_page == 'promo_codes.php') ? 'active' : '' ?>" href="promo_codes.php">
-                <i class="fas fa-tag"></i> Promo Codes
-            </a>
-            
-            <div class="nav-header">Services</div>
-            <a class="nav-link <?= ($current_page == 'categories.php') ? 'active' : '' ?>" href="categories.php">
-                <i class="fas fa-list"></i> Categories
-            </a>
-            <a class="nav-link <?= ($current_page == 'products.php') ? 'active' : '' ?>" href="products.php">
-                <i class="fas fa-box"></i> Products
-            </a>
-             <a class="nav-link <?= ($current_page == 'smm_categories.php') ? 'active' : '' ?>" href="smm_categories.php">
-                <i class="fas fa-layer-group"></i> SMM Categories
-            </a>
-            <a class="nav-link <?= ($current_page == 'smm_services.php') ? 'active' : '' ?>" href="smm_services.php">
-                <i class="fas fa-list-ul"></i> SMM Services
-            </a>
-
-            <div class="nav-header">Tools & Updates</div>
-            
-            <a class="nav-link <?= ($current_page == 'broadcast.php') ? 'active' : '' ?>" href="broadcast.php">
-                <i class="fas fa-bullhorn"></i> Broadcasts
-            </a>
-
-            <a class="nav-link <?= ($current_page == 'updates_log.php') ? 'active' : '' ?>" href="updates_log.php">
-                <i class="fas fa-history"></i> Updates Log
-            </a>
-            
-            <a class="nav-link <?= ($current_page == 'wheel_prizes.php') ? 'active' : '' ?>" href="wheel_prizes.php">
-                <i class="fas fa-dharmachakra"></i> Spin Wheel
-            </a>
-            <a class="nav-link <?= ($current_page == 'tickets.php') ? 'active' : '' ?>" href="tickets.php">
-                <i class="fas fa-headset"></i> Support Tickets
-            </a>
-
-            <a class="nav-link <?= ($current_page == 'testimonials.php') ? 'active' : '' ?>" href="testimonials.php">
-                <i class="fas fa-video"></i> Video Rewards
-            </a>
-            <a class="nav-link <?= ($current_page == 'tutorials.php') ? 'active' : '' ?>" href="tutorials.php">
-                <i class="fa-solid fa-arrow-up-from-bracket"></i> Tutorials Manage
-            </a>
-            <a class="nav-link <?= ($current_page == 'manage_audio') ? 'active' : '' ?>" href="manage_audio.php">
-                <i class="fa-solid fa-microphone"></i> manage audio
-            </a>
-            <div class="nav-header">System</div>
-            <a class="nav-link <?= ($current_page == 'providers.php') ? 'active' : '' ?>" href="providers.php">
-                <i class="fas fa-server"></i> Providers
-            </a>
-             <a class="nav-link <?= ($current_page == 'cron_jobs.php') ? 'active' : '' ?>" href="cron_jobs.php">
-                <i class="fas fa-clock"></i> Cron Jobs
-            </a>
-            <a class="nav-link <?= ($current_page == 'smm_logs.php') ? 'active' : '' ?>" href="smm_logs.php">
-                <i class="fas fa-file-alt"></i> Logs
-            </a>
-            <a class="nav-link <?= ($current_page == 'settings.php') ? 'active' : '' ?>" href="settings.php">
-                <i class="fas fa-cog"></i> Settings
-            </a>
-            <a class="nav-link <?= ($current_page == 'vpn_settings.php') ? 'active' : '' ?>" href="vpn_settings.php">
-                <i class="fas fa-shield-alt"></i> VPN Settings
-            </a>
-            <a class="nav-link <?= ($current_page == 'google_settings.php') ? 'active' : '' ?>" href="google_settings.php">
-                <i class="fab fa-google"></i> Google Login
-            </a>
-            <a class="nav-link <?= ($current_page == 'system_controls.php') ? 'active' : '' ?>" href="system_controls.php">
-                <i class="fa-solid fa-play"></i> System controls
-            </a>
-            <a class="nav-link <?= ($current_page == 'downloads_manager.php') ? 'active' : '' ?>" href="downloads_manager.php">
-                <i class="fas fa-download"></i> Downloads Manager
-            </a>
-            <a class="nav-link <?= ($current_page == 'menus.php') ? 'active' : '' ?>" href="menus.php">
-                <i class="fa-solid fa-list"></i> User menu nav 
-            </a>
-            <a class="nav-link <?= ($current_page == 'github_sync.php') ? 'active' : '' ?>" href="github_sync.php">
-                <i class="fa-brands fa-github"></i> GitHub Sync
-            </a>
-            
- <a class="nav-link <?= ($current_page == 'secure_vault.php') ? 'active' : '' ?>" href="secure_vault.php">
-                <i class="fa-solid fa-vault"></i> Admin vault
-            </a>
-            
-            <a class="nav-link text-danger mt-3" href="../logout.php">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </a>
-        </nav>
     </div>
 
     <div class="main-content">
         <?php if (isset($_GET['success'])): ?>
-            <div class="alert alert-success alert-dismissible fade show" role="alert">
-                Action completed successfully!
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="alert alert-success alert-dismissible fade show shadow-sm">
+                <i class="fa-solid fa-check-circle me-2"></i> Success!
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
-        
         <?php if (isset($_GET['error'])): ?>
-            <div class="alert alert-danger alert-dismissible fade show" role="alert">
-                An error occurred!
-                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            <div class="alert alert-danger alert-dismissible fade show shadow-sm">
+                <i class="fa-solid fa-triangle-exclamation me-2"></i> Error!
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
         <?php endif; ?>
+
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    const dropdowns = document.querySelectorAll('.nav-link.has-dropdown');
+
+    dropdowns.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            const parent = this.parentElement;
+            const submenu = parent.querySelector('.sub-menu');
+            
+            // Toggle Class
+            parent.classList.toggle('open');
+            
+            // Toggle Height
+            if (submenu.style.maxHeight && submenu.style.maxHeight !== '0px') {
+                submenu.style.maxHeight = null; // Close
+            } else {
+                submenu.style.maxHeight = submenu.scrollHeight + "px"; // Open
+            }
+        });
+    });
+});
+</script>
+</body>
+</html>
