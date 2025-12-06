@@ -54,9 +54,9 @@ function tailCustom($filepath, $lines = 10) {
 $php_bin = '/usr/bin/php';
 
 // --- CRON CONFIGURATION ---
-// Yahan 'Smart Currency' add kar diya gaya hai
+// UPDATED: Currency Sync is now set to 'currency_sync.php' with 1 Min Frequency
 $crons = [
-    ['id' => 'currency', 'title' => 'Smart Currency', 'desc' => 'Matches rate exactly with Provider.', 'file' => 'smart_currency_sync.php', 'log' => 'currency_sync.log', 'freq' => 'As Needed', 'min' => 1440, 'icon' => 'fa-coins', 'color' => '#10b981'],
+    ['id' => 'currency', 'title' => 'Currency Sync', 'desc' => 'Adaptive Sync (Respects Manual Set).', 'file' => 'currency_sync.php', 'log' => 'currency_sync.log', 'freq' => 'Every 1 Min', 'min' => 1, 'icon' => 'fa-coins', 'color' => '#10b981'],
     ['id' => 'order', 'title' => 'Order Placer', 'desc' => 'Sends pending orders to provider.', 'file' => 'smm_order_placer.php', 'log' => 'smm_order_placer.log', 'freq' => 'Every 1 Min', 'min' => 1, 'icon' => 'fa-rocket', 'color' => '#6366f1'],
     ['id' => 'status', 'title' => 'Status Sync', 'desc' => 'Updates order status & refunds.', 'file' => 'smm_status_sync.php', 'log' => 'smm_status_sync.log', 'freq' => 'Every 5 Mins', 'min' => 5, 'icon' => 'fa-rotate', 'color' => '#3b82f6'],
     ['id' => 'email', 'title' => 'Auto Payments', 'desc' => 'Checks emails for deposits.', 'file' => 'check_email.php', 'log' => 'email_payments.log', 'freq' => 'Every 5 Mins', 'min' => 5, 'icon' => 'fa-envelope-open-text', 'color' => '#ef4444'],
