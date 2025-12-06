@@ -43,17 +43,33 @@ try {
 //      NEW: CURRENCY CONVERTER SYSTEM
 // ==========================================
 
+// ==========================================
+//      UPDATED: DYNAMIC CURRENCY SYSTEM
+// ==========================================
+
 function getCurrencyList() {
+    global $settings; // Admin settings fetch karein
+
+    // Admin Panel se USD Rate lein (Agar set nahi hai to Default 280)
+    $usd_to_pkr_rate = (float)($settings['currency_conversion_rate'] ?? 280.00);
+    
+    // PKR se USD ka rate nikalne ka formula (1 / 280)
+    // Avoid division by zero error
+    if ($usd_to_pkr_rate <= 0) $usd_to_pkr_rate = 280.00;
+    $pkr_to_usd = 1 / $usd_to_pkr_rate;
+
     // Base Currency is always PKR (Rate = 1)
+    // Baaki currencies ko USD ke hisaab se auto-adjust karein
     return [
-        'PKR' => ['rate' => 1,        'symbol' => 'Rs',  'flag' => '🇵🇰', 'name' => 'Pakistani Rupee'],
-        'USD' => ['rate' => 0.0036,   'symbol' => '$',   'flag' => '🇺🇸', 'name' => 'US Dollar'],
-        'INR' => ['rate' => 0.30,     'symbol' => '₹',   'flag' => '🇮🇳', 'name' => 'Indian Rupee'],
-        'GBP' => ['rate' => 0.0028,   'symbol' => '£',   'flag' => '🇬🇧', 'name' => 'British Pound'],
-        'EUR' => ['rate' => 0.0033,   'symbol' => '€',   'flag' => '🇪🇺', 'name' => 'Euro'],
-        'SAR' => ['rate' => 0.0135,   'symbol' => '﷼',   'flag' => '🇸🇦', 'name' => 'Saudi Riyal'],
-        'AED' => ['rate' => 0.0132,   'symbol' => 'د.إ', 'flag' => '🇦🇪', 'name' => 'UAE Dirham'],
-        'TRY' => ['rate' => 0.11,     'symbol' => '₺',   'flag' => '🇹🇷', 'name' => 'Turkish Lira'],
+        'PKR' => ['rate' => 1,              'symbol' => 'Rs',  'flag' => '🇵🇰', 'name' => 'Pakistani Rupee'],
+        'USD' => ['rate' => $pkr_to_usd,    'symbol' => '$',   'flag' => '🇺🇸', 'name' => 'US Dollar'],
+        // Baki currencies ko bhi dynamic adjust kar diya hai (approximate ratios based on USD)
+        'INR' => ['rate' => $pkr_to_usd * 83,   'symbol' => '₹',   'flag' => '🇮🇳', 'name' => 'Indian Rupee'],
+        'GBP' => ['rate' => $pkr_to_usd * 0.79, 'symbol' => '£',   'flag' => '🇬🇧', 'name' => 'British Pound'],
+        'EUR' => ['rate' => $pkr_to_usd * 0.92, 'symbol' => '€',   'flag' => '🇪🇺', 'name' => 'Euro'],
+        'SAR' => ['rate' => $pkr_to_usd * 3.75, 'symbol' => '﷼',   'flag' => '🇸🇦', 'name' => 'Saudi Riyal'],
+        'AED' => ['rate' => $pkr_to_usd * 3.67, 'symbol' => 'د.إ', 'flag' => '🇦🇪', 'name' => 'UAE Dirham'],
+        'TRY' => ['rate' => $pkr_to_usd * 32.0, 'symbol' => '₺',   'flag' => '🇹🇷', 'name' => 'Turkish Lira'],
     ];
 }
 
