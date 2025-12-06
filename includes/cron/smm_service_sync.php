@@ -28,13 +28,21 @@ ini_set('memory_limit', '512M');
 
 // 5. Absolute Paths
 $base_path = dirname(dirname(__DIR__));
-$log_file = $base_path . '/assets/logs/smm_service_sync.log';
+$log_dir = $base_path . '/assets/logs';
+$log_file = $log_dir . '/smm_service_sync.log';
+
+// --- AUTO CREATE LOG FOLDER IF NOT EXISTS ---
+if (!is_dir($log_dir)) {
+    mkdir($log_dir, 0755, true);
+}
 
 function writeLog($msg) {
     global $log_file;
     $entry = "[" . date('Y-m-d H:i:s') . "] " . $msg . "\n";
+    // Force write
     if (!@file_put_contents($log_file, $entry, FILE_APPEND)) {
-        echo $msg . "<br>";
+        // Fallback for debugging
+        echo "LOG ERROR: Could not write to $log_file. Msg: $msg <br>";
     }
 }
 
@@ -55,7 +63,7 @@ try {
 
     if (!$db) throw new Exception("Database connection failed.");
 
-    // 1. Table Check
+    // --- 1. TABLE CHECK (LOGGING KE LIYE ZAROORI HAI) ---
     $db->exec("CREATE TABLE IF NOT EXISTS `service_updates` (
       `id` int(11) NOT NULL AUTO_INCREMENT,
       `service_id` int(11) DEFAULT NULL,
@@ -67,9 +75,17 @@ try {
       PRIMARY KEY (`id`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 
-    // 2. Settings
-    // Helper function will handle currency now, but we need raw rate here
-    $usd_rate = (float)($GLOBALS['settings']['currency_conversion_rate'] ?? 280.00);
+    // --- 2. GET PERFECT RATE FROM DB ---
+    // Yeh wohi rate uthayega jo smart_currency_sync.php ne set kiya hai
+    $stmt_rate = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'currency_conversion_rate'");
+    $stmt_rate->execute();
+    $db_rate = $stmt_rate->fetchColumn();
+    
+    // Agar DB mein rate nahi mila to Default 280
+    $usd_rate = ($db_rate > 0) ? (float)$db_rate : 280.00;
+    
+    writeLog("Syncing with Rate: 1 USD = $usd_rate PKR");
+
     $providers = $db->query("SELECT * FROM smm_providers WHERE is_active = 1")->fetchAll(PDO::FETCH_ASSOC);
     
     $new_count = 0; 
@@ -108,9 +124,13 @@ try {
             $cancel = (!empty($s['cancel']) && ($s['cancel'] == 1 || $s['cancel'] === true)) ? 1 : 0;
             $drip = (!empty($s['dripfeed']) && ($s['dripfeed'] == 1 || $s['dripfeed'] === true)) ? 1 : 0;
 
-            // Price Calculation
+            // --- PRICE CALCULATION (EXACT MATCH) ---
             $rate_usd = (float)$s['rate'];
+            
+            // Base Price (Provider Rate in PKR)
             $base_price_pkr = $rate_usd * $usd_rate;
+            
+            // Selling Price (With your profit margin)
             $selling_price = $base_price_pkr * (1 + ($provider['profit_margin'] / 100));
 
             // DB Check
@@ -121,12 +141,12 @@ try {
             if ($existing) {
                 if ($existing['manually_deleted'] == 1) continue;
 
-                // Update
+                // Update Existing Service
                 $sql = "UPDATE smm_services SET name=?, category=?, base_price=?, service_rate=?, min=?, max=?, avg_time=?, description=?, has_refill=?, has_cancel=?, service_type=?, dripfeed=?, is_active=1 WHERE id=?";
                 $db->prepare($sql)->execute([$name, $cat, $base_price_pkr, $selling_price, $min, $max, $avg, $desc, $refill, $cancel, $type, $drip, $existing['id']]);
                 $upd_count++;
             } else {
-                // Insert
+                // Insert New Service
                 $sql = "INSERT INTO smm_services (provider_id, service_id, name, category, base_price, service_rate, min, max, avg_time, description, has_refill, has_cancel, service_type, dripfeed, is_active, manually_deleted) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,0)";
                 $db->prepare($sql)->execute([$provider['id'], $sid, $name, $cat, $base_price_pkr, $selling_price, $min, $max, $avg, $desc, $refill, $cancel, $type, $drip]);
                 
@@ -139,7 +159,7 @@ try {
             }
         }
 
-        // Handle Removed Services
+        // Handle Removed Services (Disable local services not in API)
         if (!empty($seen_ids)) {
             $in = implode(',', array_fill(0, count($seen_ids), '?'));
             $params = array_merge([$provider['id']], $seen_ids);
@@ -152,7 +172,6 @@ try {
             $rem_count += count($removed_list);
 
             foreach ($removed_list as $rm) {
-                // Log Removal
                 $db->prepare("INSERT INTO service_updates (service_id, service_name, category_name, rate, type) VALUES (?, ?, ?, ?, 'removed')")
                    ->execute([$rm['id'], $rm['name'], $rm['category'], $rm['service_rate']]);
             }
@@ -172,9 +191,19 @@ try {
 
     writeLog("Sync Complete. New: $new_count, Updated: $upd_count, Removed: $rem_count");
 
+    // Agar browser se run ho raha hai to output dikhayein
+    if (!$is_cli) {
+        echo "<div style='font-family:sans-serif; padding:20px; background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; border-radius:10px;'>";
+        echo "<h3>✅ Sync Completed Successfully!</h3>";
+        echo "<strong>Rate Used:</strong> 1 USD = " . number_format($usd_rate, 2) . " PKR<br>";
+        echo "<strong>Services Updated:</strong> $upd_count<br>";
+        echo "<strong>New Services Added:</strong> $new_count<br>";
+        echo "</div>";
+    }
+
 } catch (Exception $e) {
     if ($db->inTransaction()) $db->rollBack();
     writeLog("CRITICAL ERROR: " . $e->getMessage());
-    echo "Error: " . $e->getMessage();
+    if (!$is_cli) echo "Error: " . $e->getMessage();
 }
 ?>
