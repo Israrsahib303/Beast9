@@ -1,67 +1,51 @@
 <?php
-// --- CRON JOB: CURRENCY RATE SYNC (SECURE & DEBUG MODE) ---
+// --- SMART ADAPTIVE CURRENCY SYNC (MANUAL RESPECT MODE) ---
+// 1. Ye script Google ka rate check karti hai.
+// 2. Agar aapne Admin Panel se rate manually change kiya hai, to ye usay detect kar legi.
+// 3. Ye overwrite nahi karegi, balkay aapke naye rate ko "New Standard" maan legi.
 
-// 1. Session Start (Admin Check ke liye)
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
-// 2. SECURITY CHECK (End Level)
-// Allow only if running from CLI (Server) OR Logged in Admin
+// Security Check (CLI or Admin Only)
 $is_cli = (php_sapi_name() === 'cli' || !isset($_SERVER['REMOTE_ADDR']));
-$is_admin = (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == 1 && isset($_SESSION['ghost_access']) && $_SESSION['ghost_access'] === true);
+$is_admin = (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == 1);
+if (!$is_cli && !$is_admin) { die("Access Denied"); }
 
-if (!$is_cli && !$is_admin) {
-    header('HTTP/1.0 403 Forbidden');
-    die("Access Denied: You are not authorized to run this cron manually.");
-}
-
-// 3. Error Reporting
+// Error Reporting
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
-ini_set('log_errors', 1);
-ini_set('error_log', __DIR__ . '/../../assets/logs/php_error.log');
 
-// 4. Time & Memory
-set_time_limit(120); 
-ini_set('memory_limit', '256M');
-
-// 5. Paths
+// Paths
 $base_path = dirname(dirname(__DIR__));
-$log_dir = $base_path . '/assets/logs';
-$log_file = $log_dir . '/currency_sync.log';
+$log_file = $base_path . '/assets/logs/currency_sync.log';
+$state_file = $base_path . '/assets/logs/currency_gap_state.json'; // Gap yaad rakhne ke liye file
 
-// --- FOLDER CHECK & CREATE ---
-if (!is_dir($log_dir)) {
-    mkdir($log_dir, 0755, true);
+// Ensure log directory exists
+if (!is_dir(dirname($log_file))) {
+    @mkdir(dirname($log_file), 0755, true);
 }
 
 function write_log($msg) {
     global $log_file;
     $entry = "[" . date('Y-m-d H:i:s') . "] " . $msg . "\n";
-    // Force write
-    if (!@file_put_contents($log_file, $entry, FILE_APPEND)) {
-        // Fallback for debugging if permission issue
-        echo "LOG ERROR: Could not write to $log_file. Msg: $msg <br>";
-    }
+    @file_put_contents($log_file, $entry, FILE_APPEND);
+    if (php_sapi_name() !== 'cli') echo $msg . "<br>";
 }
 
-write_log("--- CURRENCY SYNC STARTED ---");
+write_log("--- ADAPTIVE SYNC STARTED ---");
 
 try {
     if (!file_exists($base_path . '/includes/config.php')) {
         throw new Exception("Config file not found.");
     }
     
-    // Directory change
     chdir($base_path . '/includes');
-    
     require_once 'config.php';
     require_once 'db.php';
 
     if (!$db) throw new Exception("Database connection failed.");
 
-    // 6. Fetch Live Rate (USD to PKR)
+    // 1. Live Market Rate Fetch (Google/API)
     $api_url = "https://api.exchangerate-api.com/v4/latest/USD";
     
     $ch = curl_init();
@@ -71,41 +55,79 @@ try {
     $response = curl_exec($ch);
     
     if (curl_errno($ch)) {
-        throw new Exception("cURL Error: " . curl_error($ch));
+        throw new Exception("API Error: " . curl_error($ch));
     }
     curl_close($ch);
 
     $data = json_decode($response, true);
 
     if (isset($data['rates']['PKR'])) {
-        $live_rate = (float)$data['rates']['PKR'];
+        $live_market_rate = (float)$data['rates']['PKR'];
         
-        // --- SAFETY MARGIN (+3 PKR) ---
-        $margin = 3.00; 
-        $safe_rate = $live_rate + $margin; 
-
-        // Check Old Rate
+        // 2. Current Database Rate Fetch Karein
         $stmt_old = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'currency_conversion_rate'");
         $stmt_old->execute();
-        $old_rate = $stmt_old->fetchColumn();
+        $current_db_rate = (float)$stmt_old->fetchColumn();
 
-        // 7. Database Update
-        $stmt = $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'currency_conversion_rate'");
-        
-        if ($stmt->execute([$safe_rate])) {
-            write_log("SUCCESS: Updated USD Rate. Old: $old_rate | Live: $live_rate | New (Safe): $safe_rate");
-            if (!$is_cli) echo "✅ Updated: 1 USD = $safe_rate PKR";
-        } else {
-            throw new Exception("Database update failed.");
+        // 3. Last Remembered Gap Load Karein
+        $stored_gap = 5.0; // Default startup gap (Agar file na ho)
+        if (file_exists($state_file)) {
+            $state = json_decode(file_get_contents($state_file), true);
+            if (isset($state['gap'])) {
+                $stored_gap = (float)$state['gap'];
+            }
         }
+
+        // 4. Logic: Kya User ne hath se rate change kiya hai?
+        // Expected Rate wo hai jo script calculate kar rahi thi
+        $expected_rate = $live_market_rate + $stored_gap;
+        
+        // Agar DB Rate aur Expected Rate mein 1 PKR se zyada farq hai
+        // Iska matlab aapne manually change kiya hai.
+        $diff = abs($current_db_rate - $expected_rate);
+
+        if ($diff > 1.0) {
+            
+            // New Gap Calculate Karein (User Setting - Market Rate)
+            $new_gap = $current_db_rate - $live_market_rate;
+            
+            // Save New Gap for future
+            @file_put_contents($state_file, json_encode(['gap' => $new_gap]));
+            
+            write_log("✋ Manual Change Detected!");
+            write_log("User Set Rate: $current_db_rate | Live Market: $live_market_rate");
+            write_log("System learned new Gap: $new_gap (Will follow this from now)");
+            
+            if (!$is_cli) echo "<div style='color:green; border:1px solid green; padding:10px;'><h3>✅ Manual Rate Accepted!</h3>System has adjusted to your new rate ($current_db_rate). <br>It will not overwrite it.</div>";
+
+        } else {
+            
+            // 5. Normal Update (User ne kuch nahi chera, Market Update karo)
+            // Use existing gap to update rate
+            $final_rate = $live_market_rate + $stored_gap;
+            $final_rate = round($final_rate, 2);
+
+            // Sirf tab update karein agar value change hui ho
+            if ((string)$final_rate !== (string)$current_db_rate) {
+                $stmt = $db->prepare("UPDATE settings SET setting_value = ? WHERE setting_key = 'currency_conversion_rate'");
+                if ($stmt->execute([$final_rate])) {
+                    write_log("✅ Auto Update: Market moved to $live_market_rate. New Rate: $final_rate");
+                    if (!$is_cli) echo "<h3>✅ Rate Auto-Synced: 1 USD = $final_rate PKR</h3>";
+                }
+            } else {
+                write_log("ℹ️ Stable: Market $live_market_rate | Rate $final_rate (No Change Needed)");
+                if (!$is_cli) echo "<h3>ℹ️ Rate is Stable ($final_rate)</h3>";
+            }
+        }
+
     } else {
-        throw new Exception("Failed to fetch PKR rate from API response.");
+        throw new Exception("Failed to get rate from API.");
     }
 
 } catch (Exception $e) {
-    write_log("CRITICAL ERROR: " . $e->getMessage());
+    write_log("❌ ERROR: " . $e->getMessage());
     if (!$is_cli) echo "Error: " . $e->getMessage();
 }
 
-write_log("--- CURRENCY SYNC FINISHED ---");
+write_log("--- SYNC FINISHED ---");
 ?>
